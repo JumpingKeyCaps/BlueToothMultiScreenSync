@@ -15,21 +15,45 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.util.*
 
+/**
+ * Bluetooth server for accepting connections from multiple clients in the BlueToothMultiScreenSync project.
+ *
+ * This server listens for incoming connections from clients, handles message reception,
+ * and can broadcast messages to all connected clients.
+ *
+ * Permissions required: BLUETOOTH_CONNECT (Android 12+)
+ *
+ * @param context Android context used to check permissions.
+ */
 class BluetoothServer(private val context: Context) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /** The active server socket listening for incoming connections */
     private var serverSocket: BluetoothServerSocket? = null
+
+    /** Local Bluetooth adapter */
     private val bluetoothAdapter: BluetoothAdapter? = BluetoothAdapter.getDefaultAdapter()
+
+    /** List of currently connected client sockets */
     private val connectedSockets = mutableListOf<BluetoothSocket>()
 
+    /** Flow emitting incoming messages from clients */
     private val _incomingMessages = MutableSharedFlow<String>()
     val incomingMessages = _incomingMessages.asSharedFlow()
 
     companion object {
+        /** Standard SPP UUID used for RFCOMM connections */
         val BT_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
+
+        /** Service name for Bluetooth SDP registration */
         const val SERVICE_NAME = "BlueToothMultiScreenSyncServer"
     }
 
+    /**
+     * Checks if the app has BLUETOOTH_CONNECT permission (Android 12+)
+     * @return true if permission is granted, false otherwise
+     */
     private fun hasBluetoothConnectPermission(): Boolean {
         return ContextCompat.checkSelfPermission(
             context,
@@ -37,9 +61,16 @@ class BluetoothServer(private val context: Context) {
         ) == PackageManager.PERMISSION_GRANTED
     }
 
+    /**
+     * Starts the Bluetooth server and listens for incoming client connections.
+     *
+     * Each accepted client is stored in [connectedSockets] and starts listening for messages.
+     *
+     * @throws SecurityException if BLUETOOTH_CONNECT permission is missing
+     */
     fun startServer() {
         if (!hasBluetoothConnectPermission()) {
-            // TODO: lancer la demande de permission via ActivityResultLauncher
+            // TODO: Request permission via ActivityResultLauncher if needed
             throw SecurityException("Missing BLUETOOTH_CONNECT permission")
         }
 
@@ -62,6 +93,13 @@ class BluetoothServer(private val context: Context) {
         }
     }
 
+    /**
+     * Listens continuously to a connected client socket for incoming messages.
+     *
+     * Incoming messages are emitted via [incomingMessages].
+     *
+     * @param socket The connected BluetoothSocket to listen to
+     */
     private fun listenToSocket(socket: BluetoothSocket) {
         scope.launch {
             try {
@@ -82,6 +120,13 @@ class BluetoothServer(private val context: Context) {
         }
     }
 
+    /**
+     * Sends a message to all currently connected clients.
+     *
+     * Any socket that fails to send is removed from [connectedSockets].
+     *
+     * @param message The string message to broadcast
+     */
     fun sendMessageToAll(message: String) {
         scope.launch {
             val iterator = connectedSockets.iterator()
@@ -98,6 +143,9 @@ class BluetoothServer(private val context: Context) {
         }
     }
 
+    /**
+     * Stops the server, closes all client connections and cancels active coroutines.
+     */
     fun stopServer() {
         scope.cancel()
         connectedSockets.forEach { try { it.close() } catch (_: IOException) {} }
