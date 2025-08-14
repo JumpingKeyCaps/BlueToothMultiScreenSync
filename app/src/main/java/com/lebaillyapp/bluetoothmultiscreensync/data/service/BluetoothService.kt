@@ -21,25 +21,38 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import java.io.IOException
 import java.io.InputStream
-import java.io.OutputStream
 import java.util.*
 
+/**
+ * Foreground Service handling Bluetooth communication for the BlueToothMultiScreenSync project.
+ *
+ * This service can act as a master (server accepting multiple clients) or a slave (client connecting to a master).
+ * Messages are emitted via [messageFlow] to allow ViewModels to observe incoming data.
+ *
+ * Permissions required: BLUETOOTH_CONNECT (Android 12+)
+ */
 class BluetoothService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     companion object {
+        /** Foreground notification channel ID */
         const val CHANNEL_ID = "BluetoothServiceChannel"
-        val BT_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB") // SPP
+
+        /** Standard SPP UUID used for RFCOMM connections */
+        val BT_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
     }
 
-    // Flow to emit messages to ViewModel
+    /** Flow emitting incoming messages from connected devices */
     private val _messageFlow = MutableSharedFlow<String>()
     val messageFlow = _messageFlow.asSharedFlow()
 
     private var bluetoothAdapter: BluetoothAdapter? = null
 
+    /** List of currently connected client sockets */
     private val clientSockets = mutableListOf<BluetoothSocket>()
+
+    /** Server socket for master mode */
     private var serverSocket: BluetoothServerSocket? = null
 
     override fun onCreate() {
@@ -48,6 +61,9 @@ class BluetoothService : Service() {
         startForegroundService()
     }
 
+    /**
+     * Starts the foreground notification required for persistent service.
+     */
     private fun startForegroundService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -68,6 +84,10 @@ class BluetoothService : Service() {
         startForeground(1, notification)
     }
 
+    /**
+     * Checks if the app has BLUETOOTH_CONNECT permission (Android 12+).
+     * @return true if permission granted, false otherwise.
+     */
     private fun hasBluetoothConnectPermission(): Boolean {
         return ContextCompat.checkSelfPermission(
             this,
@@ -76,6 +96,14 @@ class BluetoothService : Service() {
     }
 
     // --- Master: server multi-client ---
+
+    /**
+     * Starts the service in master mode, listening for incoming client connections.
+     *
+     * Each accepted client socket is added to [clientSockets] and starts listening for messages.
+     *
+     * @throws SecurityException if BLUETOOTH_CONNECT permission is missing.
+     */
     fun startServer() {
         if (!hasBluetoothConnectPermission()) throw SecurityException("Missing BLUETOOTH_CONNECT permission")
 
@@ -99,6 +127,15 @@ class BluetoothService : Service() {
     }
 
     // --- Slave: connect to master ---
+
+    /**
+     * Connects to a master device (server) in slave mode.
+     *
+     * Adds the socket to [clientSockets] and starts listening for incoming messages.
+     *
+     * @param device BluetoothDevice to connect to.
+     * @throws SecurityException if BLUETOOTH_CONNECT permission is missing.
+     */
     fun connectToDevice(device: BluetoothDevice) {
         if (!hasBluetoothConnectPermission()) throw SecurityException("Missing BLUETOOTH_CONNECT permission")
 
@@ -117,6 +154,13 @@ class BluetoothService : Service() {
         }
     }
 
+    /**
+     * Continuously listens to a connected socket for incoming messages.
+     *
+     * Messages are emitted to [messageFlow]. On IOException, the socket is removed from [clientSockets].
+     *
+     * @param socket Connected BluetoothSocket.
+     */
     private fun listenToSocket(socket: BluetoothSocket) {
         serviceScope.launch {
             try {
@@ -137,7 +181,11 @@ class BluetoothService : Service() {
         }
     }
 
-    // send message to all clients
+    /**
+     * Sends a string message to all connected clients.
+     *
+     * @param message String message to send.
+     */
     fun sendMessageToAll(message: String) {
         serviceScope.launch {
             synchronized(clientSockets) {
