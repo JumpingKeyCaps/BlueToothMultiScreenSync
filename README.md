@@ -9,10 +9,18 @@
 
 
 **BlueToothMultiScreenSync** is an experimental Android project that turns multiple smartphones into a **continuous, shared canvas** using **Bluetooth Classic** for communication.  
-When you drag an image across the screen of one device, it **seamlessly moves onto the neighboring phone**, with proper scaling, cropping, and alignment — no matter the devices’ resolutions, pixel densities, or aspect ratios.
+
+When you drag an image across the screen of one device, it **seamlessly moves onto the neighboring phone**, with proper scaling, cropping, and alignment.
+No matter the devices’ resolutions, pixel densities, or aspect ratios.
+
 
 The goal is to simulate an **extended display** setup (like dual monitors) without cables or Wi-Fi, using only **Bluetooth pairing**.  
+
+
 The app is designed for **real-time interaction** (smooth dragging) and a **perfectly aligned visual experience** even if devices are physically different.
+
+
+---
 
 
 ### Multimedia Assets Consideration
