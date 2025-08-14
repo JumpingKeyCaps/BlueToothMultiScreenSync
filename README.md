@@ -2,7 +2,6 @@
 
 [![Android](https://img.shields.io/badge/Platform-Android-green)](https://developer.android.com/) 
 [![Kotlin](https://img.shields.io/badge/Language-Kotlin-7f52ff)](https://kotlinlang.org/) 
-[![License](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
 [![Build](https://img.shields.io/badge/Build-Pending-yellow)](#)
 [![Status](https://img.shields.io/badge/Status-Experimental-orange)](#)
 [![Bluetooth](https://img.shields.io/badge/Protocol-Bluetooth-blue)](#)
