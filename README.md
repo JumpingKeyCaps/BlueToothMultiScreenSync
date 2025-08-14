@@ -14,6 +14,16 @@ When you drag an image across the screen of one device, it **seamlessly moves on
 The goal is to simulate an **extended display** setup (like dual monitors) without cables or Wi-Fi, using only **Bluetooth pairing**.  
 The app is designed for **real-time interaction** (smooth dragging) and a **perfectly aligned visual experience** even if devices are physically different.
 
+
+### Multimedia Assets Consideration
+
+For this demonstration, the images used are pre-loaded and statically present in memory on all devices.
+
+This approach has allowed me to focus entirely on the complex challenges of real-time coordinate synchronization via Bluetooth Classic and adaptive rendering on a virtual canvas, independent of screen specificities.
+
+While extending this to dynamic image streaming or other large media would necessitate exploring higher-bandwidth protocols like Wi-Fi Direct, the goal of this project is to prove the feasibility of a fluid and perfectly aligned multi-screen experience by relying solely on Bluetooth capabilities for interaction management.
+
+
 ---
 
 ## Core Objectives
