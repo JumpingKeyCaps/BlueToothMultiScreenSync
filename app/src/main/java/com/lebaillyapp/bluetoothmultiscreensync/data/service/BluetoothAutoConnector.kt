@@ -1,7 +1,6 @@
 package com.lebaillyapp.bluetoothmultiscreensync.data.service
 
 import android.Manifest
-import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
@@ -11,7 +10,6 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
-import androidx.annotation.RequiresPermission
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,9 +25,12 @@ class BluetoothAutoConnector(
     }
 
     private val _state = MutableStateFlow<AutoConnectState>(AutoConnectState.Idle)
-    val state = _state.asStateFlow()
+    private val _discoveredDevices = MutableStateFlow<List<BluetoothDevice>>(emptyList())
 
-    private var foundDevice: BluetoothDevice? = null
+    val state = _state.asStateFlow()
+    val discoveredDevices = _discoveredDevices.asStateFlow()
+
+    private val potentialServers = mutableListOf<BluetoothDevice>()
     private var scanJob: Job? = null
 
     fun startAutoConnect() {
@@ -44,36 +45,39 @@ class BluetoothAutoConnector(
 
         scope.launch {
             _state.value = AutoConnectState.Scanning
-            scanForServerWithTimeout(5000)
+            potentialServers.clear()
 
-            foundDevice?.let { device ->
-                connectToServer(device) // plus d’erreur, on gère la permission à l’intérieur
-            } ?: startServerMode()
+            // 1. Scan des devices découvrables
+            scanForDevices(8000) // 8 secondes
+
+            // 2. Test des services sur les devices trouvés
+            val serverDevice = findDeviceWithOurService()
+
+            if (serverDevice != null) {
+                connectToServer(serverDevice)
+            } else {
+                startServerMode()
+            }
         }
     }
 
-
-
-
-    private suspend fun scanForServerWithTimeout(timeoutMs: Long) = suspendCancellableCoroutine<Unit> { cont ->
-        foundDevice = null
-        val filter = IntentFilter(BluetoothDevice.ACTION_FOUND)
+    /** Scan général pour découvrir tous les devices */
+    private suspend fun scanForDevices(timeoutMs: Long) = suspendCancellableCoroutine<Unit> { cont ->
+        potentialServers.clear()
+        val filter = IntentFilter().apply {
+            addAction(BluetoothDevice.ACTION_FOUND)
+            addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
+        }
 
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context?, intent: Intent?) {
-                if (BluetoothDevice.ACTION_FOUND == intent?.action) {
-                    val device: BluetoothDevice? = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
-
-                    // Accès sécurisé à device.name
-                    val deviceName: String? = try {
-                        if (hasBluetoothConnectPermission()) device?.name else null
-                    } catch (e: SecurityException) {
-                        null
+                when (intent?.action) {
+                    BluetoothDevice.ACTION_FOUND -> {
+                        val device: BluetoothDevice? = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+                        device?.let { potentialServers.add(it) }
+                        _discoveredDevices.value = potentialServers.toList()
                     }
-
-                    if (device != null && deviceName?.startsWith("BTMultiScreenSync") == true) {
-                        foundDevice = device
-                        stopDiscoverySafe()
+                    BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
                         try { context.unregisterReceiver(this) } catch (_: Exception) {}
                         if (cont.isActive) cont.resume(Unit)
                     }
@@ -90,6 +94,7 @@ class BluetoothAutoConnector(
             return@suspendCancellableCoroutine
         }
 
+        // Timeout de sécurité
         scope.launch {
             delay(timeoutMs)
             stopDiscoverySafe()
@@ -98,7 +103,27 @@ class BluetoothAutoConnector(
         }
     }
 
-    private fun connectToServer(device: BluetoothDevice) {
+    /** Tester chaque device découvert pour voir s'il expose notre service */
+    private suspend fun findDeviceWithOurService(): BluetoothDevice? {
+        _state.value = AutoConnectState.TestingServices
+
+        for (device in potentialServers) {
+            try {
+                if (connectionManager.hasOurService(device)) {
+                    return device
+                }
+            } catch (e: Exception) {
+                // Device non accessible, continuer
+                continue
+            }
+            // Petit délai entre les tests
+            delay(500)
+        }
+        return null
+    }
+
+    /** Se connecter à un serveur spécifique */
+    fun connectToServer(device: BluetoothDevice) {
         if (!hasBluetoothConnectPermission()) {
             _state.value = AutoConnectState.Error("Missing BLUETOOTH_CONNECT permission")
             startServerMode()
@@ -116,6 +141,7 @@ class BluetoothAutoConnector(
         }
     }
 
+    /** Mode serveur : ce device devient le Master */
     private fun startServerMode() {
         _state.value = AutoConnectState.ServerMode
         try {
@@ -127,6 +153,16 @@ class BluetoothAutoConnector(
         } catch (e: SecurityException) {
             _state.value = AutoConnectState.Error("Permission denied starting server")
         }
+    }
+
+    /** Connexion manuelle à un device spécifique (pour l'UI) */
+    fun connectToDevice(device: BluetoothDevice) {
+        connectToServer(device)
+    }
+
+    /** Forcer le mode serveur manuellement */
+    fun forceServerMode() {
+        startServerMode()
     }
 
     private fun stopDiscoverySafe() {
@@ -153,14 +189,17 @@ class BluetoothAutoConnector(
 
     fun stop() {
         scanJob?.cancel()
+        stopDiscoverySafe()
         scope.cancel()
         connectionManager.onDestroy()
         _state.value = AutoConnectState.Idle
+        _discoveredDevices.value = emptyList()
     }
 
     sealed class AutoConnectState {
         object Idle : AutoConnectState()
         object Scanning : AutoConnectState()
+        object TestingServices : AutoConnectState()
         data class Connecting(val device: BluetoothDevice) : AutoConnectState()
         object ServerMode : AutoConnectState()
         data class Error(val reason: String) : AutoConnectState()
