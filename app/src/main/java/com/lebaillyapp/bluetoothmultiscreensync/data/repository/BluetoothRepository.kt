@@ -2,6 +2,7 @@ package com.lebaillyapp.bluetoothmultiscreensync.data.repository
 
 import android.bluetooth.BluetoothDevice
 import android.content.Context
+import com.lebaillyapp.bluetoothmultiscreensync.data.service.BluetoothAutoConnector
 import com.lebaillyapp.bluetoothmultiscreensync.data.service.BluetoothConnectionManager
 import com.lebaillyapp.bluetoothmultiscreensync.model.BluetoothMessage
 import kotlinx.coroutines.CoroutineScope
@@ -16,6 +17,8 @@ import kotlinx.serialization.json.Json
 class BluetoothRepository(context: Context) {
 
     private val connectionManager = BluetoothConnectionManager(context)
+    private val autoConnector = BluetoothAutoConnector(context, connectionManager)
+
     private val json = Json { ignoreUnknownKeys = true }
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -23,16 +26,14 @@ class BluetoothRepository(context: Context) {
     val connectionEvents: SharedFlow<BluetoothConnectionManager.ConnectionEvent> = connectionManager.connectionEvents
     val errors: SharedFlow<Throwable> = connectionManager.errors
 
-    fun startServer() = connectionManager.startServer()
+    val autoConnectState = autoConnector.state
 
-    fun connectToServer(device: BluetoothDevice) = connectionManager.connectToServer(device)
+    fun startAutoConnect() = autoConnector.startAutoConnect()
 
-    /** Envoie un message texte simple */
     fun sendMessage(message: String) {
         scope.launch { connectionManager.sendMessage(message) }
     }
 
-    /** Envoie un message sérialisé JSON */
     fun sendMessage(message: BluetoothMessage) {
         scope.launch { connectionManager.sendMessage(json.encodeToString(message)) }
     }
@@ -40,7 +41,7 @@ class BluetoothRepository(context: Context) {
     fun getConnectedClientsCount(): Int = connectionManager.getConnectedClientsCount()
 
     fun stopAll() {
-        connectionManager.onDestroy()
+        autoConnector.stop()
         scope.cancel()
     }
 }
