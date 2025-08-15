@@ -84,18 +84,21 @@ class BluetoothConnectionManager(private val context: Context) {
 
     /** Rendre le device découvrable pour que les slaves puissent le trouver */
     private fun makeDiscoverable() {
+        if (!hasPermission(Manifest.permission.BLUETOOTH_CONNECT)) return
         if (!hasPermission(Manifest.permission.BLUETOOTH_SCAN)) return
 
-        try {
-            // Le device devient découvrable pendant 120 secondes
-            bluetoothAdapter?.let { adapter ->
+        bluetoothAdapter?.let { adapter ->
+            try {
                 if (adapter.scanMode != BluetoothAdapter.SCAN_MODE_CONNECTABLE_DISCOVERABLE) {
-                    // Note: En pratique, il faudrait demander à l'utilisateur via une Intent
-                    // mais pour la démo, on peut forcer la discoverabilité si possible
+                    val discoverableIntent = android.content.Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE).apply {
+                        putExtra(BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, 120)
+                        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(discoverableIntent)
                 }
+            } catch (e: SecurityException) {
+                _errors.tryEmit(e)
             }
-        } catch (e: SecurityException) {
-            _errors.tryEmit(e)
         }
     }
 
