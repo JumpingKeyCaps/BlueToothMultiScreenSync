@@ -1,6 +1,7 @@
-package com.lebaillyapp.bluetoothmultiscreensync.data.service
+package com.lebaillyapp.bluetoothmultiscreensync.data.service.old
 
 import android.Manifest
+import android.R
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -9,7 +10,6 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothServerSocket
 import android.bluetooth.BluetoothSocket
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -71,14 +71,14 @@ class BluetoothService : Service() {
                 "Bluetooth MultiScreen Sync",
                 NotificationManager.IMPORTANCE_LOW
             )
-            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
             manager.createNotificationChannel(channel)
         }
 
         val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("BlueToothMultiScreenSync")
             .setContentText("Bluetooth Service Running")
-            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+            .setSmallIcon(R.drawable.stat_sys_data_bluetooth)
             .build()
 
         startForeground(1, notification)

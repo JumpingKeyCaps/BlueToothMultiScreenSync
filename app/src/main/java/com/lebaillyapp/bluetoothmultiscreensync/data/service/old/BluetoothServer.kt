@@ -1,4 +1,4 @@
-package com.lebaillyapp.bluetoothmultiscreensync.data.service
+package com.lebaillyapp.bluetoothmultiscreensync.data.service.old
 
 import android.Manifest
 import android.bluetooth.BluetoothAdapter

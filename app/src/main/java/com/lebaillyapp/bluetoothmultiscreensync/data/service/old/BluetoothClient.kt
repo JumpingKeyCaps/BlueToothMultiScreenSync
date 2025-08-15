@@ -1,4 +1,4 @@
-package com.lebaillyapp.bluetoothmultiscreensync.data.service
+package com.lebaillyapp.bluetoothmultiscreensync.data.service.old
 
 import android.Manifest
 import android.bluetooth.BluetoothAdapter
@@ -12,7 +12,6 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import java.io.IOException
 import java.io.InputStream
-import java.util.*
 import java.util.UUID
 
 /**
