@@ -1,18 +1,19 @@
-package com.lebaillyapp.bluetoothmultiscreensync.data.service
+package com.lebaillyapp.bluetoothmultiscreensync.data.repository
 
 import android.bluetooth.BluetoothDevice
 import android.content.Context
+import com.lebaillyapp.bluetoothmultiscreensync.data.service.BluetoothConnectionManager
 import com.lebaillyapp.bluetoothmultiscreensync.model.BluetoothMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
-class BluetoothManager(context: Context) {
+class BluetoothRepository(context: Context) {
 
     private val connectionManager = BluetoothConnectionManager(context)
     private val json = Json { ignoreUnknownKeys = true }
