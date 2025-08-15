@@ -71,7 +71,7 @@ class BluetoothAutoConnector(
                         null
                     }
 
-                    if (device != null && deviceName?.startsWith("MyBTServer") == true) {
+                    if (device != null && deviceName?.startsWith("BTMultiScreenSync") == true) {
                         foundDevice = device
                         stopDiscoverySafe()
                         try { context.unregisterReceiver(this) } catch (_: Exception) {}
