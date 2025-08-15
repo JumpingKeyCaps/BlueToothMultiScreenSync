@@ -17,36 +17,87 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentLinkedQueue
 import kotlin.coroutines.resume
 
+/**
+ * Manages Bluetooth connections in master (server) or slave (client) mode.
+ *
+ * Handles:
+ *  - Starting a server to accept incoming connections
+ *  - Connecting to another device as a client
+ *  - Discovering nearby devices
+ *  - Sending and receiving messages
+ *  - Managing connection lifecycle and errors
+ *
+ * @param context Android context used for Bluetooth operations and starting intents.
+ */
 class BluetoothConnectionManager(private val context: Context) {
 
+    /** Android Bluetooth adapter, null if device does not support Bluetooth */
     private val bluetoothAdapter: BluetoothAdapter? = BluetoothAdapter.getDefaultAdapter()
+
+    /** Coroutine scope for async operations (IO dispatcher + SupervisorJob) */
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
+    /** Server socket used when acting as a master */
     private var serverSocket: BluetoothServerSocket? = null
+
+    /** List of connected client sockets (master mode) */
     private val clientSockets = ConcurrentLinkedQueue<BluetoothSocket>()
+
+    /** Single client socket used when connected as a slave */
     private var clientSocket: BluetoothSocket? = null
 
+    /** Flow emitting incoming messages from all connections */
     private val _incomingMessages = MutableSharedFlow<String>(extraBufferCapacity = 64)
+
+    /** Flow emitting connection events such as new client or server started */
     private val _connectionEvents = MutableSharedFlow<ConnectionEvent>(extraBufferCapacity = 16)
+
+    /** Flow emitting errors encountered during Bluetooth operations */
     private val _errors = MutableSharedFlow<Throwable>(extraBufferCapacity = 16)
 
+    /** Public access to incoming messages */
     val incomingMessages: SharedFlow<String> = _incomingMessages
+
+    /** Public access to connection events */
     val connectionEvents: SharedFlow<ConnectionEvent> = _connectionEvents
+
+    /** Public access to errors */
     val errors: SharedFlow<Throwable> = _errors
 
+    /** Custom UUID used to identify our Bluetooth service */
     private val appUuid: UUID = UUID.fromString("a60f35f0-b93a-11de-8a39-08002009c666")
 
+    /**
+     * Represents events that occur during connection lifecycle.
+     */
     sealed class ConnectionEvent {
+        /** A client connected to the server */
         data class ClientConnected(val device: BluetoothDevice) : ConnectionEvent()
+
+        /** A client disconnected from the server */
         data class ClientDisconnected(val device: BluetoothDevice) : ConnectionEvent()
+
+        /** Server has started and is ready to accept connections */
         object ServerStarted : ConnectionEvent()
+
+        /** Connected to a remote server (slave mode) */
         object ConnectedToServer : ConnectionEvent()
     }
 
+    /**
+     * Checks if the given permission is granted.
+     *
+     * @param permission The Android permission to check.
+     * @return true if granted, false otherwise.
+     */
     private fun hasPermission(permission: String): Boolean =
         ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
 
-    /** Master mode: start server - Expose le service avec notre UUID custom */
+    /**
+     * Start the server (master mode) and expose our custom UUID service.
+     *
+     * @param serviceName Optional name of the Bluetooth service.
+     */
     fun startServer(serviceName: String = "BTMultiScreenSync") {
         if (bluetoothAdapter == null) return
         if (!hasPermission(Manifest.permission.BLUETOOTH_CONNECT)) {
@@ -57,10 +108,7 @@ class BluetoothConnectionManager(private val context: Context) {
         stop()
 
         try {
-            // Rendre le device découvrable temporairement
             makeDiscoverable()
-
-            // Créer le service avec notre UUID
             serverSocket = bluetoothAdapter.listenUsingRfcommWithServiceRecord(serviceName, appUuid)
         } catch (se: SecurityException) {
             _errors.tryEmit(se)
@@ -82,7 +130,11 @@ class BluetoothConnectionManager(private val context: Context) {
         }
     }
 
-    /** Rendre le device découvrable pour que les slaves puissent le trouver */
+    /**
+     * Make the device discoverable so that clients (slaves) can find it.
+     *
+     * Automatically launches an intent for 120 seconds discoverability.
+     */
     private fun makeDiscoverable() {
         if (!hasPermission(Manifest.permission.BLUETOOTH_CONNECT)) return
         if (!hasPermission(Manifest.permission.BLUETOOTH_SCAN)) return
@@ -102,7 +154,11 @@ class BluetoothConnectionManager(private val context: Context) {
         }
     }
 
-    /** Slave mode: connect to master using UUID */
+    /**
+     * Connects to a remote server (slave mode) using the custom UUID.
+     *
+     * @param device The remote Bluetooth device to connect to.
+     */
     fun connectToServer(device: BluetoothDevice) {
         if (!hasPermission(Manifest.permission.BLUETOOTH_CONNECT)) {
             _errors.tryEmit(SecurityException("BLUETOOTH_CONNECT permission required"))
@@ -113,7 +169,6 @@ class BluetoothConnectionManager(private val context: Context) {
 
         scope.launch {
             try {
-                // Se connecter directement avec notre UUID
                 val socket = device.createRfcommSocketToServiceRecord(appUuid)
                 try { bluetoothAdapter?.cancelDiscovery() } catch (se: SecurityException) { _errors.tryEmit(se) }
 
@@ -127,7 +182,12 @@ class BluetoothConnectionManager(private val context: Context) {
         }
     }
 
-    /** Vérifier si un device expose notre service UUID */
+    /**
+     * Checks if a remote device exposes our service UUID.
+     *
+     * @param device The remote Bluetooth device to test.
+     * @return true if the service is available, false otherwise.
+     */
     @OptIn(ExperimentalCoroutinesApi::class)
     suspend fun hasOurService(device: BluetoothDevice): Boolean {
         if (!hasPermission(Manifest.permission.BLUETOOTH_CONNECT)) return false
@@ -136,7 +196,6 @@ class BluetoothConnectionManager(private val context: Context) {
             suspendCancellableCoroutine { cont ->
                 scope.launch {
                     try {
-                        // Essayer de créer une socket avec notre UUID
                         val testSocket = device.createRfcommSocketToServiceRecord(appUuid)
                         try {
                             testSocket.connect()
@@ -153,12 +212,15 @@ class BluetoothConnectionManager(private val context: Context) {
         } ?: false
     }
 
-    /** Send message to all connected peers (master or slave) */
+    /**
+     * Sends a text message to all connected peers (clients or server).
+     *
+     * @param message The message string to send.
+     */
     fun sendMessage(message: String) {
         scope.launch {
-            val messageWithDelimiter = "$message\n" // Ajouter délimiteur
+            val messageWithDelimiter = "$message\n"
 
-            // Broadcast to all clients (master)
             clientSockets.removeAll { socket ->
                 try {
                     socket.outputStream.write(messageWithDelimiter.toByteArray())
@@ -171,7 +233,6 @@ class BluetoothConnectionManager(private val context: Context) {
                 }
             }
 
-            // Send to server (slave)
             clientSocket?.let { socket ->
                 try {
                     socket.outputStream.write(messageWithDelimiter.toByteArray())
@@ -186,6 +247,13 @@ class BluetoothConnectionManager(private val context: Context) {
         }
     }
 
+    /**
+     * Listens for incoming messages on the given socket.
+     *
+     * Messages are expected to be delimited by '\n'.
+     *
+     * @param socket The Bluetooth socket to read from.
+     */
     private fun listenForMessages(socket: BluetoothSocket) {
         scope.launch {
             val buffer = ByteArray(1024)
@@ -199,7 +267,6 @@ class BluetoothConnectionManager(private val context: Context) {
                         val receivedData = String(buffer, 0, bytes)
                         messageBuffer.append(receivedData)
 
-                        // Traiter les messages complets (délimités par \n)
                         while (messageBuffer.contains('\n')) {
                             val lineEnd = messageBuffer.indexOf('\n')
                             val message = messageBuffer.substring(0, lineEnd)
@@ -219,6 +286,11 @@ class BluetoothConnectionManager(private val context: Context) {
         }
     }
 
+    /**
+     * Handles disconnection of a socket and emits corresponding events.
+     *
+     * @param socket The socket that got disconnected.
+     */
     private fun handleDisconnection(socket: BluetoothSocket) {
         if (clientSockets.contains(socket)) {
             clientSockets.remove(socket)
@@ -230,12 +302,25 @@ class BluetoothConnectionManager(private val context: Context) {
         safeClose(socket)
     }
 
+    /**
+     * Safely closes a closeable resource, emitting errors if any occur.
+     *
+     * @param closeable The resource to close.
+     */
     private fun safeClose(closeable: AutoCloseable?) {
         try { closeable?.close() } catch (e: Exception) { _errors.tryEmit(e) }
     }
 
+    /**
+     * Returns the current number of connected clients (master mode).
+     *
+     * @return Count of connected client sockets.
+     */
     fun getConnectedClientsCount(): Int = clientSockets.size
 
+    /**
+     * Stops all connections and clears sockets.
+     */
     fun stop() {
         clientSockets.forEach { safeClose(it) }
         clientSockets.clear()
@@ -245,6 +330,9 @@ class BluetoothConnectionManager(private val context: Context) {
         serverSocket = null
     }
 
+    /**
+     * Cleans up resources and cancels internal coroutine scope.
+     */
     fun onDestroy() {
         stop()
         scope.cancel()
