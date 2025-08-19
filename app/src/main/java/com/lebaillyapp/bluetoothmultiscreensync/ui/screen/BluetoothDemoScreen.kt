@@ -10,8 +10,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.lebaillyapp.bluetoothmultiscreensync.data.repository.BluetoothRepository
-import com.lebaillyapp.bluetoothmultiscreensync.data.service.BluetoothConnectionManager
-import com.lebaillyapp.bluetoothmultiscreensync.model.BluetoothMessage
 import com.lebaillyapp.bluetoothmultiscreensync.ui.viewmodel.BluetoothViewModel
 import kotlinx.coroutines.launch
 
