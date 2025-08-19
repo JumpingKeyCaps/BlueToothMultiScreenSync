@@ -1,5 +1,7 @@
 package com.lebaillyapp.bluetoothmultiscreensync.model
 
+import android.graphics.RectF
+
 /**
  * Represents a device viewport on the virtual canvas.
  *
@@ -9,53 +11,60 @@ package com.lebaillyapp.bluetoothmultiscreensync.model
  * and to check object visibility within the viewport.
  *
  * @property id Unique identifier for the device/viewport.
- * @property screenWidth Width of the device screen in pixels (or virtual units if normalized).
- * @property screenHeight Height of the device screen in pixels (or virtual units if normalized).
- * @property offsetX X-coordinate offset of the viewport in the virtual plane.
- * @property offsetY Y-coordinate offset of the viewport in the virtual plane.
+ * @property screenWidth Width of the device screen in pixels.
+ * @property screenHeight Height of the device screen in pixels.
+ * @property widthVU Width of the viewport expressed in virtual units (defined by the master).
+ * @property heightVU Height of the viewport expressed in virtual units (defined by the master).
+ * @property offsetX X-coordinate offset of the viewport in the virtual plane (top-left corner).
+ * @property offsetY Y-coordinate offset of the viewport in the virtual plane (top-left corner).
  */
 data class Viewport(
     val id: String,
     val screenWidth: Float,
     val screenHeight: Float,
+    val widthVU: Float,
+    val heightVU: Float,
     val offsetX: Float = 0f,
     val offsetY: Float = 0f
 ) {
+    /** Horizontal scale factor between virtual units and screen pixels. */
+    val scaleX: Float get() = screenWidth / widthVU
 
-    /**
-     * Converts a global X-coordinate from the virtual plane to the local X-coordinate
-     * relative to this viewport.
-     *
-     * @param globalX X-coordinate in the virtual plane.
-     * @return X-coordinate relative to the viewport's top-left corner.
-     */
-    fun toLocalX(globalX: Float): Float {
-        return globalX - offsetX
+    /** Vertical scale factor between virtual units and screen pixels. */
+    val scaleY: Float get() = screenHeight / heightVU
+}
+
+/**
+ * Projects a [SyncObject] from the virtual plane into local screen coordinates
+ * for this [Viewport].
+ *
+ * - Converts virtual coordinates into pixels.
+ * - Handles cropping if the object is partially visible.
+ * - Returns `null` if the object is completely outside the viewport.
+ *
+ * @receiver The viewport into which the object should be mapped.
+ * @param obj The synchronized object to map.
+ * @return A [RectF] in local screen coordinates, or null if not visible.
+ */
+fun Viewport.project(obj: SyncObject): RectF? {
+    val scale = scaleX // Assumes scaleX == scaleY to prevent distortion.
+
+    val localX = (obj.x - offsetX) * scale
+    val localY = (obj.y - offsetY) * scale
+    val localW = obj.width * scale
+    val localH = obj.height * scale
+
+    // Check if completely outside
+    if (localX + localW <= 0 || localY + localH <= 0 ||
+        localX >= screenWidth || localY >= screenHeight) {
+        return null
     }
 
-    /**
-     * Converts a global Y-coordinate from the virtual plane to the local Y-coordinate
-     * relative to this viewport.
-     *
-     * @param globalY Y-coordinate in the virtual plane.
-     * @return Y-coordinate relative to the viewport's top-left corner.
-     */
-    fun toLocalY(globalY: Float): Float {
-        return globalY - offsetY
-    }
+    // Apply clipping
+    val clippedX = localX.coerceIn(0f, screenWidth)
+    val clippedY = localY.coerceIn(0f, screenHeight)
+    val clippedW = (localX + localW).coerceIn(0f, screenWidth) - clippedX
+    val clippedH = (localY + localH).coerceIn(0f, screenHeight) - clippedY
 
-    /**
-     * Checks whether a rectangular object is visible within this viewport.
-     *
-     * @param globalX X-coordinate of the object in the virtual plane.
-     * @param globalY Y-coordinate of the object in the virtual plane.
-     * @param width Width of the object.
-     * @param height Height of the object.
-     * @return True if any part of the object is visible in the viewport; false otherwise.
-     */
-    fun isVisible(globalX: Float, globalY: Float, width: Float, height: Float): Boolean {
-        val visibleX = globalX + width > offsetX && globalX < offsetX + screenWidth
-        val visibleY = globalY + height > offsetY && globalY < offsetY + screenHeight
-        return visibleX && visibleY
-    }
+    return RectF(clippedX, clippedY, clippedX + clippedW, clippedY + clippedH)
 }
