@@ -9,29 +9,36 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
 /**
- * Pure ViewModel wrapping BluetoothRepository for UI consumption.
+ * ViewModel exposant les fonctionnalités Bluetooth pour l'UI.
  *
- * No direct dependency on Context — repository must be provided
- * (via DI framework or manual factory).
+ * Ce ViewModel encapsule un [BluetoothRepository] et transforme ses flux pour
+ * l'UI en StateFlows lisibles. Il ne dépend pas directement du [Context],
+ * ce qui permet de l'utiliser dans un POC ou avec injection de dépendances.
+ *
+ * Fonctionnalités :
+ * - Démarrage de l'auto-connexion
+ * - Envoi de messages vers les appareils connectés
+ * - Observation des messages reçus, événements de connexion et erreurs
+ * - Comptage des clients connectés
  */
 class BluetoothViewModel(
     private val repo: BluetoothRepository
 ) : ViewModel() {
 
-    /** Auto-connect state (idle, scanning, connected, etc.) */
+    /** État courant de l'auto-connexion (Idle, Scanning, ServerMode, etc.) */
     val autoConnectState = repo.autoConnectState
 
-    /** Messages received from connected peers */
+    /** Messages reçus depuis les appareils connectés, affichables dans l'UI */
     private val _messages = MutableStateFlow<List<String>>(emptyList())
     val messages: StateFlow<List<String>> = _messages.asStateFlow()
 
-    /** Connection events (client/server connection changes) */
+    /** Événements de connexion (connexion/déconnexion client/server) */
     private val _connectionEvents =
         MutableStateFlow<List<BluetoothConnectionManager.ConnectionEvent>>(emptyList())
     val connectionEvents: StateFlow<List<BluetoothConnectionManager.ConnectionEvent>> =
         _connectionEvents.asStateFlow()
 
-    /** Latest errors collected */
+    /** Liste des dernières erreurs survenues lors des opérations Bluetooth */
     private val _errors = MutableStateFlow<List<Throwable>>(emptyList())
     val errors: StateFlow<List<Throwable>> = _errors.asStateFlow()
 
@@ -39,6 +46,7 @@ class BluetoothViewModel(
         observeRepo()
     }
 
+    /** Observe les flows du repository et met à jour les StateFlows exposés */
     private fun observeRepo() {
         viewModelScope.launch {
             repo.messages.collect { msg ->
@@ -57,14 +65,25 @@ class BluetoothViewModel(
         }
     }
 
+    /** Démarre le processus d'auto-connexion Bluetooth */
     fun startAutoConnect() = repo.startAutoConnect()
 
+    /**
+     * Envoie un message texte à tous les appareils connectés
+     * @param message le contenu à envoyer
+     */
     fun sendMessage(message: String) = repo.sendMessage(message)
 
+    /**
+     * Envoie un message structuré (BluetoothMessage) à tous les appareils connectés
+     * @param message le message structuré
+     */
     fun sendMessage(message: BluetoothMessage) = repo.sendMessage(message)
 
+    /** Retourne le nombre d'appareils actuellement connectés */
     fun getConnectedClientsCount(): Int = repo.getConnectedClientsCount()
 
+    /** Arrête toutes les connexions et nettoie le repository */
     override fun onCleared() {
         super.onCleared()
         repo.stopAll()
