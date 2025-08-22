@@ -21,9 +21,9 @@ import com.lebaillyapp.bluetoothmultiscreensync.ui.theme.BlueToothMultiScreenSyn
  * Main entry point of the app.
  *
  * Handles:
- * 1️⃣ Dynamic request of Bluetooth permissions.
- * 2️⃣ Ensures Bluetooth is enabled on device (asks user if needed).
- * 3️⃣ Sets the Compose UI with [BluetoothDemoScreen] for testing BT features.
+ * 1- Dynamic request of Bluetooth permissions.
+ * 2- Ensures Bluetooth is enabled on device (asks user if needed).
+ * 3- Sets the Compose UI with [BluetoothDemoScreen] for testing BT features.
  */
 class MainActivity : ComponentActivity() {
 
@@ -31,17 +31,17 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // 1️⃣ Request Bluetooth permissions dynamically
+        // 1- Request Bluetooth permissions dynamically
         requestBtPermissions()
 
-        // 2️⃣ Ensure Bluetooth is enabled
+        // 2- Ensure Bluetooth is enabled
         ensureBluetoothEnabled()
 
-        // 3️⃣ Set the main Compose UI
+        // 3- Set the main Compose UI
         setContent {
             BlueToothMultiScreenSyncTheme {
                 Column(modifier = Modifier.fillMaxSize().padding(top = 36.dp)) {
-                    // Test BT feature !
+                    // Test BT feature flow !
                     BluetoothDemoScreen()
                 }
             }
