@@ -172,6 +172,37 @@ Enable:
 
 ---
 
+## Bluetooth Connectivity Limitations
+
+While Bluetooth Classic theoretically supports up to `7 simultaneous slave connections per master device` (forming a piconet of 8 total devices), real-world Android implementations present more restrictive constraints.
+Practical Limits
+
+- Most Android devices can `reliably maintain 3-4 active SPP` (RFCOMM) connections simultaneously
+- This limitation varies significantly between manufacturers and Bluetooth chipsets
+Samsung, Xiaomi, OnePlus, and other OEMs may implement different connection limits in their Bluetooth stack
+
+
+### Hardware Dependencies
+
+- Older Android devices (API < 26) may struggle with multiple concurrent connections
+Bluetooth chipset quality directly impacts connection stability and maximum concurrent sockets
+Available system resources (RAM, CPU) can affect connection reliability under load
+
+
+### Recommended Configuration
+
+- 2-3 devices: Optimal performance and stability across most Android devices
+- 4+ devices: Possible but requires extensive testing on target hardware
+
+The app automatically detects and adapts to the maximum supported connections per device
+
+
+### Fallback Strategy
+
+If connection limits are reached, the master device will prioritize the most recently paired slaves and gracefully handle disconnections by redistributing viewports among remaining active devices.
+
+---
+
 ## ⚠️ Technical Considerations
 
  - Latency: Bluetooth Classic has ~20–50 ms typical latency → good for dragging, bad for ultra-fast animation.
