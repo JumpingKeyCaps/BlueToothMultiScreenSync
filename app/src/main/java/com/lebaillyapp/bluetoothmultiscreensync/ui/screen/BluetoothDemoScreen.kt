@@ -16,6 +16,24 @@ import kotlinx.coroutines.launch
 
 private const val TAG = "BTDemoScreen"
 
+/**
+ * Composable de test pour la fonctionnalité Bluetooth.
+ *
+ * Cette UI permet de :
+ * 1. Démarrer l'auto-connexion Bluetooth avec d'autres appareils.
+ * 2. Envoyer un message test ("Hello BT !").
+ * 3. Afficher l'état courant de l'auto-connexion.
+ * 4. Afficher le nombre de clients connectés.
+ * 5. Lister les messages reçus, les événements de connexion et les erreurs.
+ *
+ * Le comportement :
+ * - Les listes (`messages`, `events`, `errors`) scrollent automatiquement vers le dernier élément.
+ * - Les changements de l'état `AutoConnect` sont loggés dans Logcat.
+ *
+ * Remarques :
+ * - Cette composable crée son propre [BluetoothRepository] et [BluetoothViewModel] pour simplifier le POC.
+ * - Le [CoroutineScope] local est utilisé pour l'animation du scroll des LazyColumn.
+ */
 @Composable
 fun BluetoothDemoScreen() {
     val context = LocalContext.current
@@ -37,17 +55,28 @@ fun BluetoothDemoScreen() {
     val eventsState = rememberLazyListState()
     val errorsState = rememberLazyListState()
 
-    // Auto-scroll effects
+    // --- Auto-scroll effects ---
+    /**
+     * Scroll automatique vers le dernier message lorsqu'un nouveau message arrive.
+     */
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
             scope.launch { messagesState.animateScrollToItem(messages.lastIndex) }
         }
     }
+
+    /**
+     * Scroll automatique vers le dernier événement lorsqu'un nouvel événement arrive.
+     */
     LaunchedEffect(events.size) {
         if (events.isNotEmpty()) {
             scope.launch { eventsState.animateScrollToItem(events.lastIndex) }
         }
     }
+
+    /**
+     * Scroll automatique vers la dernière erreur lorsqu'une nouvelle erreur arrive.
+     */
     LaunchedEffect(errors.size) {
         if (errors.isNotEmpty()) {
             scope.launch { errorsState.animateScrollToItem(errors.lastIndex) }
@@ -55,6 +84,9 @@ fun BluetoothDemoScreen() {
     }
 
     // Log autoConnect state changes
+    /**
+     * Affiche dans le logcat tout changement d'état de l'auto-connexion.
+     */
     LaunchedEffect(autoState) {
         Log.d(TAG, "AutoConnectState changed: $autoState")
     }
@@ -65,14 +97,23 @@ fun BluetoothDemoScreen() {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Action buttons
+        // --- Action buttons ---
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            /**
+             * Bouton pour démarrer le processus d'auto-connexion Bluetooth.
+             * Appelle [BluetoothViewModel.startAutoConnect] et logge l'action.
+             */
             Button(onClick = {
                 Log.d(TAG, "Start AutoConnect clicked")
                 viewModel.startAutoConnect()
             }) {
                 Text("Start AutoConnect")
             }
+
+            /**
+             * Bouton pour envoyer un message test ("Hello BT !") aux appareils connectés.
+             * Appelle [BluetoothViewModel.sendMessage].
+             */
             Button(onClick = {
                 Log.d(TAG, "Send Hello clicked")
                 viewModel.sendMessage("Hello BT !")
@@ -81,13 +122,12 @@ fun BluetoothDemoScreen() {
             }
         }
 
-        // AutoConnect state display
+        // Affichage état AutoConnect et clients connectés
         Text("AutoConnect state: $autoState")
-        // Connected clients count
         Text("Connected clients: ${viewModel.getConnectedClientsCount()}")
         Divider()
 
-        // Messages list
+        // --- Messages list ---
         Text("Messages:")
         LazyColumn(
             state = messagesState,
@@ -97,7 +137,8 @@ fun BluetoothDemoScreen() {
         ) { items(messages) { Text(it) } }
 
         Divider()
-        // Events list
+
+        // --- Events list ---
         Text("Events:")
         LazyColumn(
             state = eventsState,
@@ -107,7 +148,8 @@ fun BluetoothDemoScreen() {
         ) { items(events) { Text(it.toString()) } }
 
         Divider()
-        // Errors list
+
+        // --- Errors list ---
         Text("Errors:")
         LazyColumn(
             state = errorsState,
