@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
+import com.lebaillyapp.bluetoothmultiscreensync.ui.screen.BTStatusPulseScreen
 import com.lebaillyapp.bluetoothmultiscreensync.ui.screen.BluetoothDemoScreen
 import com.lebaillyapp.bluetoothmultiscreensync.ui.theme.BlueToothMultiScreenSyncTheme
 
@@ -42,7 +43,8 @@ class MainActivity : ComponentActivity() {
             BlueToothMultiScreenSyncTheme {
                 Column(modifier = Modifier.fillMaxSize().padding(top = 36.dp)) {
                     // Test BT feature flow !
-                    BluetoothDemoScreen()
+                   // BluetoothDemoScreen()
+                    BTStatusPulseScreen()
                 }
             }
         }
