@@ -1,5 +1,6 @@
 package com.lebaillyapp.bluetoothmultiscreensync.ui.screen
 
+import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -13,34 +14,30 @@ import com.lebaillyapp.bluetoothmultiscreensync.data.repository.BluetoothReposit
 import com.lebaillyapp.bluetoothmultiscreensync.ui.viewmodel.BluetoothViewModel
 import kotlinx.coroutines.launch
 
-/**
- * Demo screen for testing Bluetooth functionality.
- *
- * Shows buttons to start auto-connect and send a test message.
- * Displays received messages, connection events, and errors in scrollable lists.
- *
- * This composable automatically scrolls to the latest item in each list when new data arrives.
- */
+private const val TAG = "BTDemoScreen"
+
 @Composable
 fun BluetoothDemoScreen() {
     val context = LocalContext.current
 
-    // Create repository and viewmodel
+    // Repository & ViewModel
     val repository = remember { BluetoothRepository(context) }
     val viewModel = remember { BluetoothViewModel(repository) }
 
-    // Observe state from ViewModel
+    // State observers
     val messages by viewModel.messages.collectAsState()
     val events by viewModel.connectionEvents.collectAsState()
     val errors by viewModel.errors.collectAsState()
+    val autoState by viewModel.autoConnectState.collectAsState()
 
-    // LazyList states for auto-scroll
+    val scope = rememberCoroutineScope()
+
+    // LazyList states
     val messagesState = rememberLazyListState()
     val eventsState = rememberLazyListState()
     val errorsState = rememberLazyListState()
-    val scope = rememberCoroutineScope()
 
-    // Auto-scroll whenever new items are added
+    // Auto-scroll effects
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
             scope.launch { messagesState.animateScrollToItem(messages.lastIndex) }
@@ -57,6 +54,11 @@ fun BluetoothDemoScreen() {
         }
     }
 
+    // Log autoConnect state changes
+    LaunchedEffect(autoState) {
+        Log.d(TAG, "AutoConnectState changed: $autoState")
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -65,14 +67,22 @@ fun BluetoothDemoScreen() {
     ) {
         // Action buttons
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(onClick = { viewModel.startAutoConnect() }) {
+            Button(onClick = {
+                Log.d(TAG, "Start AutoConnect clicked")
+                viewModel.startAutoConnect()
+            }) {
                 Text("Start AutoConnect")
             }
-            Button(onClick = { viewModel.sendMessage("Hello BT !") }) {
+            Button(onClick = {
+                Log.d(TAG, "Send Hello clicked")
+                viewModel.sendMessage("Hello BT !")
+            }) {
                 Text("Send Hello")
             }
         }
 
+        // AutoConnect state display
+        Text("AutoConnect state: $autoState")
         // Connected clients count
         Text("Connected clients: ${viewModel.getConnectedClientsCount()}")
         Divider()
@@ -84,11 +94,7 @@ fun BluetoothDemoScreen() {
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-        ) {
-            items(messages) { msg ->
-                Text(msg)
-            }
-        }
+        ) { items(messages) { Text(it) } }
 
         Divider()
         // Events list
@@ -98,11 +104,7 @@ fun BluetoothDemoScreen() {
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-        ) {
-            items(events) { ev ->
-                Text(ev.toString())
-            }
-        }
+        ) { items(events) { Text(it.toString()) } }
 
         Divider()
         // Errors list
@@ -112,10 +114,6 @@ fun BluetoothDemoScreen() {
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-        ) {
-            items(errors) { err ->
-                Text(err.message ?: "Unknown error", color = MaterialTheme.colorScheme.error)
-            }
-        }
+        ) { items(errors) { Text(it.message ?: "Unknown error", color = MaterialTheme.colorScheme.error) } }
     }
 }
