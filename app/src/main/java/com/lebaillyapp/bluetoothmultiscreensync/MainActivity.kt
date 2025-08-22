@@ -1,6 +1,8 @@
 package com.lebaillyapp.bluetoothmultiscreensync
 
 import android.Manifest
+import android.bluetooth.BluetoothAdapter
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -11,19 +13,31 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.core.app.ActivityCompat
 import com.lebaillyapp.bluetoothmultiscreensync.ui.screen.BluetoothDemoScreen
 import com.lebaillyapp.bluetoothmultiscreensync.ui.theme.BlueToothMultiScreenSyncTheme
-import androidx.core.app.ActivityCompat
 
+/**
+ * Main entry point of the app.
+ *
+ * Handles:
+ * 1️⃣ Dynamic request of Bluetooth permissions.
+ * 2️⃣ Ensures Bluetooth is enabled on device (asks user if needed).
+ * 3️⃣ Sets the Compose UI with [BluetoothDemoScreen] for testing BT features.
+ */
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // Request Bluetooth permissions dynamically
+        // 1️⃣ Request Bluetooth permissions dynamically
         requestBtPermissions()
 
+        // 2️⃣ Ensure Bluetooth is enabled
+        ensureBluetoothEnabled()
+
+        // 3️⃣ Set the main Compose UI
         setContent {
             BlueToothMultiScreenSyncTheme {
                 Column(modifier = Modifier.fillMaxSize().padding(top = 36.dp)) {
@@ -34,6 +48,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Requests required Bluetooth permissions depending on Android version.
+     *
+     * Android 12+ requires [Manifest.permission.BLUETOOTH_CONNECT] and [Manifest.permission.BLUETOOTH_SCAN].
+     * Older versions use [Manifest.permission.BLUETOOTH] and [Manifest.permission.BLUETOOTH_ADMIN].
+     *
+     * Permissions are requested at runtime using [ActivityCompat.requestPermissions].
+     */
     private fun requestBtPermissions() {
         val perms = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             arrayOf(
@@ -46,7 +68,36 @@ class MainActivity : ComponentActivity() {
                 Manifest.permission.BLUETOOTH_ADMIN
             )
         }
-
         ActivityCompat.requestPermissions(this, perms, 0)
+    }
+
+    /**
+     * Ensures Bluetooth is enabled on the device.
+     *
+     * If Bluetooth is not supported, prints a log.
+     * If Bluetooth is disabled, sends an [Intent] to request the user to enable it.
+     *
+     * Requires [Manifest.permission.BLUETOOTH_CONNECT] on Android 12+.
+     */
+    private fun ensureBluetoothEnabled() {
+        val bluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
+        if (bluetoothAdapter == null) {
+            println("Bluetooth not supported on this device")
+            return
+        }
+
+        if (!bluetoothAdapter.isEnabled) {
+            // check permission only on Android 12+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) {
+                println("BLUETOOTH_CONNECT permission missing, cannot enable BT programmatically")
+                return
+            }
+
+            val enableIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
+            startActivity(enableIntent)
+        }
     }
 }
