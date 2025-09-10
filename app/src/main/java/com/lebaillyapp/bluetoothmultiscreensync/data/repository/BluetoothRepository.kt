@@ -8,6 +8,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
@@ -24,65 +25,53 @@ import kotlinx.serialization.json.Json
  */
 class BluetoothRepository(context: Context) {
 
-    /** Manages raw Bluetooth connections and message I/O */
     private val connectionManager = BluetoothConnectionManager(context)
-
-    /** Handles automatic discovery and connection logic */
     private val autoConnector = BluetoothAutoConnector(context, connectionManager)
-
-    /** JSON serializer for [BluetoothMessage] objects */
     private val json = Json { ignoreUnknownKeys = true }
-
-    /** Coroutine scope for sending messages asynchronously */
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    /** SharedFlow of incoming messages from connected peers */
-    val messages: SharedFlow<String> = connectionManager.incomingMessages
+    /** Flow interne pour les messages décodés */
+    private val _messages = MutableSharedFlow<BluetoothMessage>(extraBufferCapacity = 64)
+    val messages: SharedFlow<BluetoothMessage> = _messages
 
-    /** SharedFlow of connection events (clients connect/disconnect, server started, etc.) */
+    init {
+        // Observe le flux string brut et le transforme en BluetoothMessage
+        scope.launch {
+            connectionManager.incomingMessages.collect { raw ->
+                try {
+                    val msg = json.decodeFromString<BluetoothMessage>(raw)
+                    // Rebroadcast uniquement si serveur, exclude l'origine
+                    if (connectionManager.isServer) {
+                        connectionManager.sendMessage(raw, exclude = msg.id)
+                    }
+                    // Émission du message décodé dans le flow
+                    _messages.emit(msg)
+                } catch (_: Exception) {
+                    // ignore les messages mal formés
+                }
+            }
+        }
+    }
+
     val connectionEvents: SharedFlow<BluetoothConnectionManager.ConnectionEvent> = connectionManager.connectionEvents
-
-    /** SharedFlow of errors encountered during Bluetooth operations */
     val errors: SharedFlow<Throwable> = connectionManager.errors
-
-    /** StateFlow representing the current auto-connect state */
     val autoConnectState = autoConnector.state
 
-    /** Starts the automatic connection process via [BluetoothAutoConnector] */
     fun startAutoConnect() = autoConnector.startAutoConnect()
 
-    /**
-     * Sends a string message to all connected peers.
-     *
-     * @param message The text message to send.
-     */
     fun sendMessage(message: String) {
         scope.launch { connectionManager.sendMessage(message) }
     }
 
-    /**
-     * Sends a [BluetoothMessage] object to all connected peers.
-     *
-     * The object is serialized to JSON before sending.
-     *
-     * @param message The [BluetoothMessage] to send.
-     */
     fun sendMessage(message: BluetoothMessage) {
-        scope.launch { connectionManager.sendMessage(json.encodeToString(message)) }
+        scope.launch {
+            val raw = json.encodeToString(message)
+            connectionManager.sendMessage(raw)
+        }
     }
 
-    /**
-     * Returns the number of currently connected clients (only relevant in server mode).
-     *
-     * @return Number of connected client devices.
-     */
     fun getConnectedClientsCount(): Int = connectionManager.getConnectedClientsCount()
 
-    /**
-     * Stops all Bluetooth activities.
-     *
-     * Cancels auto-connect, closes connections, and cancels internal coroutines.
-     */
     fun stopAll() {
         autoConnector.stop()
         scope.cancel()
