@@ -41,7 +41,7 @@ class MainActivity : ComponentActivity() {
         // 3- Set the main Compose UI
         setContent {
             BlueToothMultiScreenSyncTheme {
-                Column(modifier = Modifier.fillMaxSize().padding(top = 36.dp)) {
+                Column(modifier = Modifier.fillMaxSize()) {
                     // Test BT feature flow !
                    // BluetoothDemoScreen()
                     BTStatusPulseScreen()
