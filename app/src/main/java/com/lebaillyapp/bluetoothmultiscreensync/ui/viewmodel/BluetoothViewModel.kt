@@ -29,8 +29,8 @@ class BluetoothViewModel(
     val autoConnectState = repo.autoConnectState
 
     /** Messages reçus depuis les appareils connectés, affichables dans l'UI */
-    private val _messages = MutableStateFlow<List<String>>(emptyList())
-    val messages: StateFlow<List<String>> = _messages.asStateFlow()
+    private val _messages = MutableStateFlow<List<BluetoothMessage>>(emptyList())
+    val messages: StateFlow<List<BluetoothMessage>> = _messages.asStateFlow()
 
     /** Événements de connexion (connexion/déconnexion client/server) */
     private val _connectionEvents =
@@ -50,7 +50,7 @@ class BluetoothViewModel(
     private fun observeRepo() {
         viewModelScope.launch {
             repo.messages.collect { msg ->
-                _messages.update { it + msg }
+                _messages.update { it + msg } // msg est déjà un BluetoothMessage
             }
         }
         viewModelScope.launch {
