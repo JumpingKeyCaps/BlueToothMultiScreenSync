@@ -1,5 +1,6 @@
 package com.lebaillyapp.bluetoothmultiscreensync.ui.screen
 
+import android.app.Activity
 import android.bluetooth.BluetoothAdapter
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -16,14 +17,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.lebaillyapp.bluetoothmultiscreensync.data.repository.BluetoothRepository
 import com.lebaillyapp.bluetoothmultiscreensync.ui.viewmodel.BluetoothViewModel
 import com.lebaillyapp.bluetoothmultiscreensync.data.service.BluetoothAutoConnector
-import kotlin.math.cos
 import kotlin.math.PI
+import kotlin.math.cos
 
 private const val TAG = "BTStatusPulseScreen"
 
@@ -36,11 +41,14 @@ private const val TAG = "BTStatusPulseScreen"
  * - Rouge : Erreur
  *
  * Le gradient pulse doucement entre nuances proches pour effet respirant.
- * Overlay discret en haut à gauche montre AutoConnect state + clients connectés.
+ * L’overlay en haut à gauche montre AutoConnect state + clients connectés.
+ * Status bar et nav bar suivent le gradient.
  */
 @Composable
-fun BTStatusPulseScreen() {
+fun BTStatusPulseScreen(){
     val context = LocalContext.current
+    val view = LocalView.current
+    val activity = view.context as? Activity
     val repository = remember { BluetoothRepository(context) }
     val viewModel = remember { BluetoothViewModel(repository) }
     val autoState by viewModel.autoConnectState.collectAsState()
@@ -70,7 +78,7 @@ fun BTStatusPulseScreen() {
         onDispose { context.unregisterReceiver(receiver) }
     }
 
-    // --- Extraire un état lisible et la couleur associée ---
+    // --- Extraire un état lisible et couleur associée ---
     val (stateText, targetColor) = when (autoState) {
         is BluetoothAutoConnector.AutoConnectState.Idle -> "Idle" to Color(0xFF666666)
         is BluetoothAutoConnector.AutoConnectState.Scanning -> "Scanning" to Color(0xFFFFA500)
@@ -115,6 +123,18 @@ fun BTStatusPulseScreen() {
     val smoothFraction = (cos(animatedFraction * PI).toFloat() + 1f) / 2f
     val pulseColor = lerp(targetColor, pulseShade(targetColor, 0.15f), smoothFraction)
 
+    // Status bar & navigation bar follow gradient
+    SideEffect {
+        activity?.window?.let { window ->
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+            val controller = WindowInsetsControllerCompat(window, window.decorView)
+            controller.isAppearanceLightStatusBars = false
+            controller.isAppearanceLightNavigationBars = false
+            window.statusBarColor = pulseColor.toArgb()
+            window.navigationBarColor = pulseColor.toArgb()
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -127,7 +147,7 @@ fun BTStatusPulseScreen() {
         // Overlay info
         Column(
             modifier = Modifier
-                .padding(16.dp)
+                .padding(56.dp)
                 .align(Alignment.TopStart)
         ) {
             Text(
