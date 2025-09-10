@@ -134,7 +134,9 @@ fun BluetoothDemoScreen() {
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-        ) { items(messages) { Text(it) } }
+        ) {  items(messages) { msg ->
+            Text(msg.toString())
+        } }
 
         Divider()
 
