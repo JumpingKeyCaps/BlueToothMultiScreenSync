@@ -67,6 +67,13 @@ class BluetoothConnectionManager(private val context: Context) {
     /** Custom UUID used to identify our Bluetooth service */
     private val appUuid: UUID = UUID.fromString("a60f35f0-b93a-11de-8a39-08002009c666")
 
+
+    /** Indique si on est en mode serveur */
+    val isServer: Boolean
+        get() = serverSocket != null
+
+
+
     /**
      * Represents events that occur during connection lifecycle.
      */
@@ -216,15 +223,18 @@ class BluetoothConnectionManager(private val context: Context) {
      * Sends a text message to all connected peers (clients or server).
      *
      * @param message The message string to send.
+     * @param exclude Optional device address to exclude from sending.
      */
-    fun sendMessage(message: String) {
+    fun sendMessage(message: String, exclude: String? = null) { // NEW param
         scope.launch {
             val messageWithDelimiter = "$message\n"
 
             clientSockets.removeAll { socket ->
                 try {
-                    socket.outputStream.write(messageWithDelimiter.toByteArray())
-                    socket.outputStream.flush()
+                    if (socket.remoteDevice.address != exclude) { // NEW exclude check
+                        socket.outputStream.write(messageWithDelimiter.toByteArray())
+                        socket.outputStream.flush()
+                    }
                     false
                 } catch (e: IOException) {
                     _connectionEvents.tryEmit(ConnectionEvent.ClientDisconnected(socket.remoteDevice))
@@ -235,10 +245,11 @@ class BluetoothConnectionManager(private val context: Context) {
 
             clientSocket?.let { socket ->
                 try {
-                    socket.outputStream.write(messageWithDelimiter.toByteArray())
-                    socket.outputStream.flush()
-                }
-                catch (e: IOException) {
+                    if (socket.remoteDevice.address != exclude) { // NEW exclude check
+                        socket.outputStream.write(messageWithDelimiter.toByteArray())
+                        socket.outputStream.flush()
+                    }
+                } catch (e: IOException) {
                     _errors.tryEmit(e)
                     safeClose(socket)
                     clientSocket = null
@@ -249,10 +260,6 @@ class BluetoothConnectionManager(private val context: Context) {
 
     /**
      * Listens for incoming messages on the given socket.
-     *
-     * Messages are expected to be delimited by '\n'.
-     *
-     * @param socket The Bluetooth socket to read from.
      */
     private fun listenForMessages(socket: BluetoothSocket) {
         scope.launch {
@@ -273,7 +280,13 @@ class BluetoothConnectionManager(private val context: Context) {
                             messageBuffer.delete(0, lineEnd + 1)
 
                             if (message.isNotEmpty()) {
+                                // On émet le message brut
                                 _incomingMessages.emit(message)
+
+                                // Si serveur, rebroadcast vers autres clients (exclude origin)
+                                if (isServer) { // NEW
+                                    sendMessage(message, exclude = socket.remoteDevice.address)
+                                }
                             }
                         }
                     }
