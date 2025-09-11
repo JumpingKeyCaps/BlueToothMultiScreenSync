@@ -10,6 +10,8 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Log
+import androidx.annotation.RequiresPermission
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -75,7 +77,7 @@ class BluetoothAutoConnector(
             potentialServers.clear()
 
             // Scan for devices
-            scanForDevices(8000)
+            scanForDevices(15000)
 
             // Check for devices exposing our service
             val serverDevice = findDeviceWithOurService()
@@ -95,21 +97,36 @@ class BluetoothAutoConnector(
      */
     private suspend fun scanForDevices(timeoutMs: Long) = suspendCancellableCoroutine<Unit> { cont ->
         potentialServers.clear()
+        Log.d("BTScan", "=== scanForDevices started (timeout=$timeoutMs) ===")
+
         val filter = IntentFilter().apply {
             addAction(BluetoothDevice.ACTION_FOUND)
             addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
         }
 
         val receiver = object : BroadcastReceiver() {
+            @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
             override fun onReceive(ctx: Context?, intent: Intent?) {
                 when (intent?.action) {
                     BluetoothDevice.ACTION_FOUND -> {
-                        val device: BluetoothDevice? = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
-                        device?.let { potentialServers.add(it) }
-                        _discoveredDevices.value = potentialServers.toList()
+                        val device: BluetoothDevice? =
+                            intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+
+                        if (device != null) {
+                            Log.d( "BTScan","FOUND device: name=${device.name}, addr=${device.address}, bondState=${device.bondState}")
+                            potentialServers.add(device)
+                            _discoveredDevices.value = potentialServers.toList()
+                        } else {
+                            Log.w("BTScan", "FOUND null device (WTF)")
+                        }
                     }
+
                     BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
-                        try { context.unregisterReceiver(this) } catch (_: Exception) {}
+                        Log.d("BTScan", "=== Discovery finished, found=${potentialServers.size} devices ===")
+                        try {
+                            context.unregisterReceiver(this)
+                        } catch (_: Exception) {
+                        }
                         if (cont.isActive) cont.resume(Unit)
                     }
                 }
@@ -117,9 +134,12 @@ class BluetoothAutoConnector(
         }
 
         try {
+            Log.d("BTScan", "Registering receiver + starting discovery…")
             context.registerReceiver(receiver, filter)
-            adapter?.startDiscovery()
+            val started = adapter?.startDiscovery() ?: false
+            Log.d("BTScan", "startDiscovery() returned $started")
         } catch (e: SecurityException) {
+            Log.e("BTScan", "Permission denied during discovery: ${e.message}", e)
             _state.value = AutoConnectState.Error("Permission denied during discovery")
             if (cont.isActive) cont.resume(Unit)
             return@suspendCancellableCoroutine
@@ -128,8 +148,12 @@ class BluetoothAutoConnector(
         // Safety timeout
         scope.launch {
             delay(timeoutMs)
+            Log.w("BTScan", "Timeout ($timeoutMs ms) reached, stopping discovery manually")
             stopDiscoverySafe()
-            try { context.unregisterReceiver(receiver) } catch (_: Exception) {}
+            try {
+                context.unregisterReceiver(receiver)
+            } catch (_: Exception) {
+            }
             if (cont.isActive) cont.resume(Unit)
         }
     }
