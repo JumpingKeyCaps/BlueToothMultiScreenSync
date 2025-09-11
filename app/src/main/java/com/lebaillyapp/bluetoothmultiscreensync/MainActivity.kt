@@ -2,12 +2,19 @@ package com.lebaillyapp.bluetoothmultiscreensync
 
 import android.Manifest
 import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.annotation.RequiresPermission
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -16,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import com.lebaillyapp.bluetoothmultiscreensync.ui.screen.BTStatusPulseScreen
 import com.lebaillyapp.bluetoothmultiscreensync.ui.screen.BluetoothDemoScreen
+import com.lebaillyapp.bluetoothmultiscreensync.ui.screen.BtScannerWithPermissions
 import com.lebaillyapp.bluetoothmultiscreensync.ui.theme.BlueToothMultiScreenSyncTheme
 
 /**
@@ -33,10 +41,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         // 1- Request Bluetooth permissions dynamically
-        requestBtPermissions()
+   //     requestBtPermissions()
 
         // 2- Ensure Bluetooth is enabled
-        ensureBluetoothEnabled()
+   //     ensureBluetoothEnabled()
 
         // 3- Set the main Compose UI
         setContent {
@@ -44,7 +52,9 @@ class MainActivity : ComponentActivity() {
                 Column(modifier = Modifier.fillMaxSize()) {
                     // Test BT feature flow !
                    // BluetoothDemoScreen()
-                    BTStatusPulseScreen()
+                  //  BTStatusPulseScreen()
+
+                    BtScannerWithPermissions(this@MainActivity)
                 }
             }
         }
@@ -62,16 +72,25 @@ class MainActivity : ComponentActivity() {
         val perms = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             arrayOf(
                 Manifest.permission.BLUETOOTH_CONNECT,
-                Manifest.permission.BLUETOOTH_SCAN
+                Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION
             )
         } else {
             arrayOf(
                 Manifest.permission.BLUETOOTH,
-                Manifest.permission.BLUETOOTH_ADMIN
+                Manifest.permission.BLUETOOTH_ADMIN,
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION
             )
         }
         ActivityCompat.requestPermissions(this, perms, 0)
+
     }
+
+
+
+
 
     /**
      * Ensures Bluetooth is enabled on the device.
@@ -102,4 +121,13 @@ class MainActivity : ComponentActivity() {
             startActivity(enableIntent)
         }
     }
+
+
+
+
 }
+
+
+
+
+
