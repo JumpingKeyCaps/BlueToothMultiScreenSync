@@ -1,79 +1,77 @@
 package com.lebaillyapp.bluetoothmultiscreensync.data.repository
 
-import android.content.Context
-import com.lebaillyapp.bluetoothmultiscreensync.data.service.old.BluetoothAutoConnector
-import com.lebaillyapp.bluetoothmultiscreensync.data.service.old.BluetoothConnectionManager
-import com.lebaillyapp.bluetoothmultiscreensync.model.BluetoothMessage
+import com.lebaillyapp.bluetoothmultiscreensync.data.service.BluetoothAutoConnectService
+import com.lebaillyapp.bluetoothmultiscreensync.data.service.BluetoothConnectionService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 
 /**
- * Repository providing a high-level interface for Bluetooth operations.
- *
- * Encapsulates both [BluetoothConnectionManager] and [BluetoothAutoConnector],
- * allowing clients to send/receive messages, observe connection events,
- * manage auto-connect state, and handle errors.
- *
- * @param context Android context for initializing Bluetooth components.
+ * Repository that bridges Bluetooth services to the ViewModel.
+ * Does NOT access Android framework.
  */
-class BluetoothRepository(context: Context) {
+class BluetoothRepository(
+    private val connectionService: BluetoothConnectionService,
+    private val autoConnectService: BluetoothAutoConnectService
+) {
 
-    private val connectionManager = BluetoothConnectionManager(context)
-    private val autoConnector = BluetoothAutoConnector(context, connectionManager)
-    private val json = Json { ignoreUnknownKeys = true }
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    /** Flow interne pour les messages décodés */
-    private val _messages = MutableSharedFlow<BluetoothMessage>(extraBufferCapacity = 64)
-    val messages: SharedFlow<BluetoothMessage> = _messages
+    // --- Messages ---
+    private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 64)
+    val messages: SharedFlow<String> = _messages
+
+    // --- Connection events ---
+    private val _connectionEvents = MutableSharedFlow<BluetoothConnectionService.ConnectionEvent>(extraBufferCapacity = 16)
+    val connectionEvents: SharedFlow<BluetoothConnectionService.ConnectionEvent> = _connectionEvents
+
+    // --- AutoConnect state ---
+    val autoConnectState: StateFlow<BluetoothAutoConnectService.AutoConnectState> = autoConnectService.state
 
     init {
-        // Observe le flux string brut et le transforme en BluetoothMessage
+        // Forward incoming messages from connection service
         scope.launch {
-            connectionManager.incomingMessages.collect { raw ->
-                try {
-                    val msg = json.decodeFromString<BluetoothMessage>(raw)
-                    // Rebroadcast uniquement si serveur, exclude l'origine
-                    if (connectionManager.isServer) {
-                        connectionManager.sendMessage(raw, exclude = msg.id)
-                    }
-                    // Émission du message décodé dans le flow
-                    _messages.emit(msg)
-                } catch (_: Exception) {
-                    // ignore les messages mal formés
-                }
+            connectionService.incomingMessages.collect { msg ->
+                _messages.emit(msg)
+            }
+        }
+
+        // Forward connection events from connection service
+        scope.launch {
+            connectionService.connectionEvents.collect { event ->
+                _connectionEvents.emit(event)
             }
         }
     }
 
-    val connectionEvents: SharedFlow<BluetoothConnectionManager.ConnectionEvent> = connectionManager.connectionEvents
-    val errors: SharedFlow<Throwable> = connectionManager.errors
-    val autoConnectState = autoConnector.state
+    // --- Actions exposed to VM ---
+    fun startServer() = connectionService.startServer()
 
-    fun startAutoConnect() = autoConnector.startAutoConnect()
-
-    fun sendMessage(message: String) {
-        scope.launch { connectionManager.sendMessage(message) }
+    fun connectToPeer(peer: BluetoothConnectionService.PeerConnection) {
+        connectionService.connectToPeer(peer)
     }
 
-    fun sendMessage(message: BluetoothMessage) {
-        scope.launch {
-            val raw = json.encodeToString(message)
-            connectionManager.sendMessage(raw)
-        }
+    fun sendMessage(msg: String, excludeId: String? = null) {
+        connectionService.sendMessage(msg, excludeId)
     }
 
-    fun getConnectedClientsCount(): Int = connectionManager.getConnectedClientsCount()
+    fun startAutoConnect(peers: List<BluetoothConnectionService.PeerConnection>) {
+        autoConnectService.startAutoConnect(peers)
+    }
 
     fun stopAll() {
-        autoConnector.stop()
+        // Stop auto-connect first to prevent new connections
+        autoConnectService.stop()
+        connectionService.stopAll()
+    }
+
+    fun cleanup() {
+        stopAll()
         scope.cancel()
     }
 }
