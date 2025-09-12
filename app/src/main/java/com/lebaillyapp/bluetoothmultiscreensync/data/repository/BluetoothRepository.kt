@@ -1,8 +1,8 @@
 package com.lebaillyapp.bluetoothmultiscreensync.data.repository
 
 import android.content.Context
-import com.lebaillyapp.bluetoothmultiscreensync.data.service.BluetoothAutoConnector
-import com.lebaillyapp.bluetoothmultiscreensync.data.service.BluetoothConnectionManager
+import com.lebaillyapp.bluetoothmultiscreensync.data.service.old.BluetoothAutoConnector
+import com.lebaillyapp.bluetoothmultiscreensync.data.service.old.BluetoothConnectionManager
 import com.lebaillyapp.bluetoothmultiscreensync.model.BluetoothMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

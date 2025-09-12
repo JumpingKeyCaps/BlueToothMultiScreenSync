@@ -3,7 +3,7 @@ package com.lebaillyapp.bluetoothmultiscreensync.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lebaillyapp.bluetoothmultiscreensync.data.repository.BluetoothRepository
-import com.lebaillyapp.bluetoothmultiscreensync.data.service.BluetoothConnectionManager
+import com.lebaillyapp.bluetoothmultiscreensync.data.service.old.BluetoothConnectionManager
 import com.lebaillyapp.bluetoothmultiscreensync.model.BluetoothMessage
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch

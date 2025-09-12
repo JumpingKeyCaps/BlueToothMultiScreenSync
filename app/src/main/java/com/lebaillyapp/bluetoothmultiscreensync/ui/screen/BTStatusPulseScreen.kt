@@ -26,7 +26,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.lebaillyapp.bluetoothmultiscreensync.data.repository.BluetoothRepository
 import com.lebaillyapp.bluetoothmultiscreensync.ui.viewmodel.BluetoothViewModel
-import com.lebaillyapp.bluetoothmultiscreensync.data.service.BluetoothAutoConnector
+import com.lebaillyapp.bluetoothmultiscreensync.data.service.old.BluetoothAutoConnector
 import kotlin.math.PI
 import kotlin.math.cos
 

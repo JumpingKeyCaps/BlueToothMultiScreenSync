@@ -1,4 +1,4 @@
-package com.lebaillyapp.bluetoothmultiscreensync.data.service
+package com.lebaillyapp.bluetoothmultiscreensync.data.service.old
 
 import android.Manifest
 import android.bluetooth.BluetoothAdapter
@@ -6,6 +6,7 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothServerSocket
 import android.bluetooth.BluetoothSocket
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.*
@@ -149,9 +150,9 @@ class BluetoothConnectionManager(private val context: Context) {
         bluetoothAdapter?.let { adapter ->
             try {
                 if (adapter.scanMode != BluetoothAdapter.SCAN_MODE_CONNECTABLE_DISCOVERABLE) {
-                    val discoverableIntent = android.content.Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE).apply {
+                    val discoverableIntent = Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE).apply {
                         putExtra(BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, 120)
-                        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     }
                     context.startActivity(discoverableIntent)
                 }
