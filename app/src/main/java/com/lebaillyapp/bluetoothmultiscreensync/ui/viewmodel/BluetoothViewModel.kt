@@ -3,89 +3,121 @@ package com.lebaillyapp.bluetoothmultiscreensync.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lebaillyapp.bluetoothmultiscreensync.data.repository.BluetoothRepository
-import com.lebaillyapp.bluetoothmultiscreensync.data.service.old.BluetoothConnectionManager
-import com.lebaillyapp.bluetoothmultiscreensync.model.BluetoothMessage
-import kotlinx.coroutines.flow.*
+import com.lebaillyapp.bluetoothmultiscreensync.data.service.BluetoothConnectionService
+import com.lebaillyapp.bluetoothmultiscreensync.data.service.BluetoothWorkflowEvent
+import com.lebaillyapp.bluetoothmultiscreensync.model.BluetoothWorkflowState
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-/**
- * ViewModel exposant les fonctionnalités Bluetooth pour l'UI.
- *
- * Ce ViewModel encapsule un [BluetoothRepository] et transforme ses flux pour
- * l'UI en StateFlows lisibles. Il ne dépend pas directement du [Context],
- * ce qui permet de l'utiliser dans un POC ou avec injection de dépendances.
- *
- * Fonctionnalités :
- * - Démarrage de l'auto-connexion
- * - Envoi de messages vers les appareils connectés
- * - Observation des messages reçus, événements de connexion et erreurs
- * - Comptage des clients connectés
- */
 class BluetoothViewModel(
     private val repo: BluetoothRepository
 ) : ViewModel() {
 
-    /** État courant de l'auto-connexion (Idle, Scanning, ServerMode, etc.) */
-    val autoConnectState = repo.autoConnectState
+    // --- Workflow state / events ---
+    private val _workflowState = MutableSharedFlow<BluetoothWorkflowState>(replay = 1)
+    val workflowState: SharedFlow<BluetoothWorkflowState> = _workflowState.asSharedFlow()
 
-    /** Messages reçus depuis les appareils connectés, affichables dans l'UI */
-    private val _messages = MutableStateFlow<List<BluetoothMessage>>(emptyList())
-    val messages: StateFlow<List<BluetoothMessage>> = _messages.asStateFlow()
+    private val _workflowEvents = MutableSharedFlow<BluetoothWorkflowEvent>(extraBufferCapacity = 16)
+    val workflowEvents: SharedFlow<BluetoothWorkflowEvent> = _workflowEvents.asSharedFlow()
 
-    /** Événements de connexion (connexion/déconnexion client/server) */
-    private val _connectionEvents =
-        MutableStateFlow<List<BluetoothConnectionManager.ConnectionEvent>>(emptyList())
-    val connectionEvents: StateFlow<List<BluetoothConnectionManager.ConnectionEvent>> =
-        _connectionEvents.asStateFlow()
-
-    /** Liste des dernières erreurs survenues lors des opérations Bluetooth */
-    private val _errors = MutableStateFlow<List<Throwable>>(emptyList())
-    val errors: StateFlow<List<Throwable>> = _errors.asStateFlow()
+    // --- Repository flows ---
+    val messages: SharedFlow<String> = repo.messages
+    val connectionEvents: SharedFlow<BluetoothConnectionService.ConnectionEvent> = repo.connectionEvents
+    val autoConnectState: StateFlow<com.lebaillyapp.bluetoothmultiscreensync.data.service.BluetoothAutoConnectService.AutoConnectState> =
+        repo.autoConnectState
 
     init {
-        observeRepo()
+        // Initialize workflow as IDLE
+        viewModelScope.launch { _workflowState.emit(BluetoothWorkflowState.IDLE) }
     }
 
-    /** Observe les flows du repository et met à jour les StateFlows exposés */
-    private fun observeRepo() {
+    // === PUBLIC ACTIONS ===
+    fun startSequentialWorkflow() {
         viewModelScope.launch {
-            repo.messages.collect { msg ->
-                _messages.update { it + msg } // msg est déjà un BluetoothMessage
-            }
-        }
-        viewModelScope.launch {
-            repo.connectionEvents.collect { ev ->
-                _connectionEvents.update { it + ev }
-            }
-        }
-        viewModelScope.launch {
-            repo.errors.collect { e ->
-                _errors.update { it + e }
-            }
+            _workflowState.emit(BluetoothWorkflowState.CHECKING_PERMISSIONS)
+            proceedToNextStep()
         }
     }
 
-    /** Démarre le processus d'auto-connexion Bluetooth */
-    fun startAutoConnect() = repo.startAutoConnect()
-
-    /**
-     * Envoie un message texte à tous les appareils connectés
-     * @param message le contenu à envoyer
-     */
-    fun sendMessage(message: String) = repo.sendMessage(message)
-
-    /**
-     * Envoie un message structuré (BluetoothMessage) à tous les appareils connectés
-     * @param message le message structuré
-     */
-    fun sendMessage(message: BluetoothMessage) = repo.sendMessage(message)
-
-    /** Retourne le nombre d'appareils actuellement connectés */
-    fun getConnectedClientsCount(): Int = repo.getConnectedClientsCount()
-
-    /** Arrête toutes les connexions et nettoie le repository */
-    override fun onCleared() {
-        super.onCleared()
-        repo.stopAll()
+    fun handleWorkflowEvent(event: BluetoothWorkflowEvent) {
+        viewModelScope.launch {
+            when (event) {
+                is BluetoothWorkflowEvent.PermissionsResult -> {
+                    if (event.granted) {
+                        _workflowState.emit(BluetoothWorkflowState.CHECKING_BLUETOOTH)
+                        proceedToNextStep()
+                    } else {
+                        _workflowState.emit(BluetoothWorkflowState.ERROR)
+                        _workflowEvents.emit(BluetoothWorkflowEvent.WorkflowError("Permissions refusées"))
+                    }
+                }
+                is BluetoothWorkflowEvent.BluetoothEnableResult -> {
+                    if (event.enabled) {
+                        _workflowState.emit(BluetoothWorkflowState.CHECKING_LOCATION)
+                        delay(300)
+                        proceedToNextStep()
+                    } else {
+                        _workflowState.emit(BluetoothWorkflowState.ERROR)
+                        _workflowEvents.emit(BluetoothWorkflowEvent.WorkflowError("Bluetooth refusé"))
+                    }
+                }
+                is BluetoothWorkflowEvent.LocationEnableResult -> {
+                    if (event.enabled) {
+                        _workflowState.emit(BluetoothWorkflowState.READY_TO_SCAN)
+                        delay(300)
+                        proceedToNextStep()
+                    } else {
+                        // Retry location
+                        _workflowState.emit(BluetoothWorkflowState.CHECKING_LOCATION)
+                        delay(300)
+                        proceedToNextStep()
+                    }
+                }
+                else -> {}
+            }
+        }
     }
+
+    // === INTERNAL WORKFLOW LOGIC ===
+    private fun proceedToNextStep() {
+        viewModelScope.launch {
+            when (_workflowState.replayCache.lastOrNull() ?: BluetoothWorkflowState.IDLE) {
+                BluetoothWorkflowState.CHECKING_PERMISSIONS -> {
+                    _workflowState.emit(BluetoothWorkflowState.REQUESTING_PERMISSIONS)
+                    _workflowEvents.emit(BluetoothWorkflowEvent.RequestPermissions)
+                }
+
+                BluetoothWorkflowState.CHECKING_BLUETOOTH -> {
+                    _workflowState.emit(BluetoothWorkflowState.REQUESTING_BLUETOOTH)
+                    _workflowEvents.emit(BluetoothWorkflowEvent.RequestBluetoothEnable)
+                }
+
+                BluetoothWorkflowState.CHECKING_LOCATION -> {
+                    _workflowState.emit(BluetoothWorkflowState.REQUESTING_LOCATION)
+                    _workflowEvents.emit(BluetoothWorkflowEvent.RequestLocationEnable)
+                }
+
+                BluetoothWorkflowState.READY_TO_SCAN -> {
+                    _workflowState.emit(BluetoothWorkflowState.SCANNING)
+                    _workflowEvents.emit(BluetoothWorkflowEvent.StartScan)
+                    // Démarre auto-connect avec les peers trouvés (initialement vide)
+                    repo.startAutoConnect(emptyList())
+                }
+
+                else -> {}
+            }
+        }
+    }
+
+    // === WRAPPERS VERS REPO ===
+    fun startServer() = repo.startServer()
+    fun connectToPeer(peer: BluetoothConnectionService.PeerConnection) = repo.connectToPeer(peer)
+    fun sendMessage(msg: String, excludeId: String? = null) = repo.sendMessage(msg, excludeId)
+    fun stopAll() = repo.stopAll()
+    fun cleanup() = repo.cleanup()
 }
