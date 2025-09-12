@@ -1,12 +1,10 @@
 package com.lebaillyapp.bluetoothmultiscreensync.ui.screen
 
 import android.Manifest
+import android.app.Activity
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
+import android.content.*
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.os.Build
@@ -14,6 +12,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.util.Log
+import android.util.Log.e
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -27,109 +26,245 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.PermissionChecker
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
 
-private const val TAG = "BTScannerRetry"
+private const val TAG = "BTScannerSequential"
+
+// États possibles de notre machine d'états
+enum class BtSetupState {
+    IDLE,
+    CHECKING_PERMISSIONS,
+    REQUESTING_PERMISSIONS,
+    CHECKING_BLUETOOTH,
+    REQUESTING_BLUETOOTH,
+    CHECKING_LOCATION,
+    REQUESTING_LOCATION,
+    READY_TO_SCAN,
+    SCANNING,
+    ERROR
+}
 
 @Composable
 fun BtScannerWithPermissions(activity: ComponentActivity) {
     val adapter = remember { BluetoothAdapter.getDefaultAdapter() }
     val devices = remember { mutableStateListOf<BluetoothDevice>() }
 
-    var btEnabled by remember { mutableStateOf(adapter?.isEnabled == true) }
-    var locationEnabled by remember { mutableStateOf(isLocationEnabled(activity)) }
-    var permsGranted by remember { mutableStateOf(false) }
+    var currentState by remember { mutableStateOf(BtSetupState.IDLE) }
+    var errorMessage by remember { mutableStateOf("") }
     var discovering by remember { mutableStateOf(false) }
 
     val handler = remember { Handler(Looper.getMainLooper()) }
 
-    // Retry automatique toutes les 5 sec
+    // Retry automatique toutes les 10 sec si on est en scanning
     val retryRunnable = object : Runnable {
         @RequiresPermission(Manifest.permission.BLUETOOTH_SCAN)
         override fun run() {
-            if (adapter != null && btEnabled && locationEnabled && permsGranted && !adapter.isDiscovering) {
-                Log.d(TAG, "Retry scan 5s")
+            if (currentState == BtSetupState.SCANNING &&
+                adapter != null &&
+                !adapter.isDiscovering) {
+                Log.d(TAG, "Retry scan automatique")
                 startBtScanDebug(activity, adapter, devices) { isDisc -> discovering = isDisc }
             }
-            handler.postDelayed(this, 5000)
+            handler.postDelayed(this, 10000)
         }
     }
 
-    val startScanIfReady: () -> Unit = {
-        btEnabled = adapter?.isEnabled == true
-        locationEnabled = isLocationEnabled(activity)
-        Log.d(TAG, "startScanIfReady: BT=$btEnabled, Loc=$locationEnabled, Perms=$permsGranted")
-        if (adapter != null && btEnabled && locationEnabled && permsGranted) {
-            Log.d(TAG, "Conditions OK, lancement scan sécurisé.")
-            startBtScanDebug(activity, adapter, devices) { isDisc -> discovering = isDisc }
-            handler.removeCallbacks(retryRunnable)
-            handler.postDelayed(retryRunnable, 5000)
-        } else {
-            Log.d(TAG, "Scan impossible: conditions non remplies")
-        }
-    }
-
-    // Launchers
-    val enableBtLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        btEnabled = adapter?.isEnabled == true
-        handler.postDelayed({ startScanIfReady() }, 500)
-    }
-
-    val locationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        locationEnabled = isLocationEnabled(activity)
-        handler.postDelayed({ startScanIfReady() }, 500)
-    }
-
-    val requestPermsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { perms ->
-        permsGranted = perms.all { it.value }
-        Log.d(TAG, "Permissions accordées: $permsGranted")
-        startScanIfReady()
-    }
-
-    LaunchedEffect(Unit) {
-        if (adapter == null) {
-            Log.d(TAG, "Bluetooth non supporté.")
-            return@LaunchedEffect
-        }
-
-        val perms = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.ACCESS_FINE_LOCATION)
-        } else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
-
-        val missing = perms.filter { ContextCompat.checkSelfPermission(activity, it) != PackageManager.PERMISSION_GRANTED }
-        permsGranted = missing.isEmpty()
-
-        when {
-            missing.isNotEmpty() -> {
-                Log.d(TAG, "Permissions initiales manquantes: ${missing.joinToString()}")
-                requestPermsLauncher.launch(missing.toTypedArray())
+    // Fonction pour avancer dans la séquence
+    val proceedToNextStep: () -> Unit = {
+        when (currentState) {
+            BtSetupState.IDLE -> {
+                currentState = BtSetupState.CHECKING_PERMISSIONS
             }
-            !locationEnabled -> locationLauncher.launch(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
-            !btEnabled -> enableBtLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
-            else -> startScanIfReady()
+            BtSetupState.CHECKING_PERMISSIONS -> {
+                val requiredPerms = getRequiredPermissions()
+                val missingPerms = requiredPerms.filter {
+                    ContextCompat.checkSelfPermission(activity, it) != PackageManager.PERMISSION_GRANTED
+                }
+
+                if (missingPerms.isNotEmpty()) {
+                    Log.d(TAG, "Permissions manquantes: ${missingPerms.joinToString()}")
+                    currentState = BtSetupState.REQUESTING_PERMISSIONS
+                } else {
+                    currentState = BtSetupState.CHECKING_BLUETOOTH
+                }
+            }
+            BtSetupState.CHECKING_BLUETOOTH -> {
+                if (adapter == null) {
+                    currentState = BtSetupState.ERROR
+                    errorMessage = "Bluetooth non supporté"
+                } else if (!adapter.isEnabled) {
+                    Log.d(TAG, "Bluetooth désactivé, demande d'activation")
+                    currentState = BtSetupState.REQUESTING_BLUETOOTH
+                } else {
+                    currentState = BtSetupState.CHECKING_LOCATION
+                }
+            }
+            BtSetupState.CHECKING_LOCATION -> {
+                if (!isLocationEnabled(activity)) {
+                    Log.d(TAG, "Localisation désactivée, demande d'activation")
+                    currentState = BtSetupState.REQUESTING_LOCATION
+                } else {
+                    currentState = BtSetupState.READY_TO_SCAN
+                }
+            }
+            BtSetupState.READY_TO_SCAN -> {
+                Log.d(TAG, "Toutes les conditions réunies, démarrage du scan")
+                currentState = BtSetupState.SCANNING
+                if (adapter != null) {
+                    startBtScanDebug(activity, adapter, devices) { isDisc -> discovering = isDisc }
+                    handler.postDelayed(retryRunnable, 10000)
+                }
+            }
+            else -> {
+                Log.d(TAG, "État inattendu: $currentState")
+            }
         }
     }
 
+    // Launchers pour les différentes étapes
+    val requestPermsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { perms ->
+        val allGranted = perms.all { it.value }
+        Log.d(TAG, "Résultat permissions: $allGranted")
+
+        if (allGranted) {
+            currentState = BtSetupState.CHECKING_BLUETOOTH
+            // Petit délai pour laisser le système se stabiliser
+            handler.postDelayed({ proceedToNextStep() }, 300)
+        } else {
+            currentState = BtSetupState.ERROR
+            errorMessage = "Permissions refusées"
+        }
+    }
+
+    val enableBtLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val btEnabled = adapter?.isEnabled == true
+        Log.d(TAG, "Résultat activation BT: $btEnabled")
+
+        if (btEnabled) {
+            currentState = BtSetupState.CHECKING_LOCATION
+            handler.postDelayed({ proceedToNextStep() }, 300)
+        } else {
+            currentState = BtSetupState.ERROR
+            errorMessage = "Bluetooth refusé"
+        }
+    }
+
+    val locationLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        // On ne peut pas vraiment savoir le résultat, on re-vérifie
+        currentState = BtSetupState.CHECKING_LOCATION
+        handler.postDelayed({ proceedToNextStep() }, 300)
+    }
+
+    // Gestion du refresh lors du retour à l'app
+    val lifecycleOwner: LifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                // Si on était en train de demander la localisation, on re-vérifie
+                if (currentState == BtSetupState.REQUESTING_LOCATION) {
+                    handler.postDelayed({
+                        currentState = BtSetupState.CHECKING_LOCATION
+                        proceedToNextStep()
+                    }, 2000)
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            handler.removeCallbacks(retryRunnable)
+        }
+    }
+
+    // Effect pour gérer les transitions d'états
+    LaunchedEffect(currentState) {
+        when (currentState) {
+            BtSetupState.IDLE -> proceedToNextStep()
+            BtSetupState.CHECKING_PERMISSIONS -> proceedToNextStep()
+            BtSetupState.REQUESTING_PERMISSIONS -> {
+                val requiredPerms = getRequiredPermissions()
+                val missingPerms = requiredPerms.filter {
+                    ContextCompat.checkSelfPermission(activity, it) != PackageManager.PERMISSION_GRANTED
+                }
+                requestPermsLauncher.launch(missingPerms.toTypedArray())
+            }
+            BtSetupState.CHECKING_BLUETOOTH -> proceedToNextStep()
+            BtSetupState.REQUESTING_BLUETOOTH -> {
+                enableBtLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+            }
+            BtSetupState.CHECKING_LOCATION -> proceedToNextStep()
+            BtSetupState.REQUESTING_LOCATION -> {
+                locationLauncher.launch(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+            }
+            BtSetupState.READY_TO_SCAN -> proceedToNextStep()
+            else -> { /* États terminaux */ }
+        }
+    }
+
+    // UI
     Column(modifier = Modifier.padding(16.dp)) {
-        Text("=== BT Scanner Retry Debug ===", style = MaterialTheme.typography.titleMedium)
+        Text("=== BT Scanner Séquentiel ===", style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(8.dp))
-        Text("Bluetooth: ${if (btEnabled) "ON" else "OFF"}")
-        Text("Location: ${if (locationEnabled) "ON" else "OFF"}")
-        Text("Permissions: ${if (permsGranted) "GRANTED" else "MISSING"}")
-        Text("Discovering: $discovering")
+
+        Text("État actuel: ${currentState.name}")
+
+        if (errorMessage.isNotEmpty()) {
+            Text("Erreur: $errorMessage", color = MaterialTheme.colorScheme.error)
+        }
+
         Spacer(Modifier.height(8.dp))
-        Text("Devices found: ${devices.size}", style = MaterialTheme.typography.titleSmall)
+
+        // Statuts détaillés
+        val btEnabled = adapter?.isEnabled == true
+        val locationEnabled = isLocationEnabled(activity)
+        val permsGranted = getRequiredPermissions().all {
+            ContextCompat.checkSelfPermission(activity, it) == PackageManager.PERMISSION_GRANTED
+        }
+
+        Text("✓ Permissions: ${if (permsGranted) "OK" else "NOK"}")
+        Text("✓ Bluetooth: ${if (btEnabled) "ON" else "OFF"}")
+        Text("✓ Location: ${if (locationEnabled) "ON" else "OFF"}")
+        Text("✓ Discovering: $discovering")
+
+        Spacer(Modifier.height(8.dp))
+        Text("Devices trouvés: ${devices.size}", style = MaterialTheme.typography.titleSmall)
+
         devices.forEach { device ->
             val name = try {
-                if (ContextCompat.checkSelfPermission(activity, Manifest.permission.BLUETOOTH_CONNECT) == PermissionChecker.PERMISSION_GRANTED)
+                if (ContextCompat.checkSelfPermission(activity, Manifest.permission.BLUETOOTH_CONNECT) ==
+                    PermissionChecker.PERMISSION_GRANTED
+                ) {
                     device.name ?: "Unknown"
-                else "Permission manquante"
-            } catch (_: SecurityException) { "SecurityException" }
-            Text("$name / ${device.address}")
+                } else "Permission manquante"
+            } catch (_: SecurityException) {
+                "SecurityException"
+            }
+            Text("• $name / ${device.address}")
         }
     }
 }
 
-// Scan sécurisé debug
+// Helpers
+private fun getRequiredPermissions(): Array<String> {
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        arrayOf(
+            Manifest.permission.BLUETOOTH_SCAN,
+            Manifest.permission.BLUETOOTH_CONNECT,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        )
+    } else {
+        arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+    }
+}
+
 private fun startBtScanDebug(
     context: Context,
     adapter: BluetoothAdapter,
@@ -138,7 +273,7 @@ private fun startBtScanDebug(
 ) {
     Log.d(TAG, "=== startBtScanDebug ===")
     Log.d(TAG, "Adapter enabled: ${adapter.isEnabled}")
-    Log.d(TAG, "isDiscovering before cancel: ${adapter.isDiscovering}")
+    Log.d(TAG, "isDiscovering before: ${adapter.isDiscovering}")
 
     val filter = IntentFilter().apply {
         addAction(BluetoothDevice.ACTION_FOUND)
@@ -149,39 +284,72 @@ private fun startBtScanDebug(
         override fun onReceive(ctx: Context?, intent: Intent?) {
             when (intent?.action) {
                 BluetoothDevice.ACTION_FOUND -> {
-                    val device: BluetoothDevice? = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+                    val device: BluetoothDevice? =
+                        intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
                     device?.let {
                         if (!devices.any { it.address == device.address }) {
                             val name = try {
-                                if (ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PermissionChecker.PERMISSION_GRANTED)
+                                if (ContextCompat.checkSelfPermission(
+                                        context,
+                                        Manifest.permission.BLUETOOTH_CONNECT
+                                    ) == PermissionChecker.PERMISSION_GRANTED
+                                ) {
                                     device.name ?: "Unknown"
-                                else "Permission manquante"
-                            } catch (_: SecurityException) { "SecurityException" }
+                                } else "Permission manquante"
+                            } catch (_: SecurityException) {
+                                "SecurityException"
+                            }
                             devices.add(device)
-                            Log.d(TAG, "Found device: $name / ${device.address}")
+                            Log.d(TAG, "Device trouvé: $name / ${device.address}")
                         }
                     }
                 }
+
                 BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
-                    Log.d(TAG, "Discovery finished")
+                    Log.d(TAG, "Discovery terminée")
                     onDiscovering(false)
-                    try { context.unregisterReceiver(this) } catch (_: Exception) {}
+                    try {
+                        context.unregisterReceiver(this)
+                    } catch (_: Exception) {
+                    }
                 }
             }
         }
     }
 
-    try { context.registerReceiver(receiver, filter) } catch (e: Exception) { Log.e(TAG, "Register failed", e) }
+    try {
+        context.registerReceiver(receiver, filter)
+    } catch (e: Exception) {
+        Log.e(TAG, "Erreur register receiver", e)
+        onDiscovering(false)
+        return
+    }
 
-    if (ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_SCAN) == PermissionChecker.PERMISSION_GRANTED) {
-        try { if (adapter.isDiscovering) adapter.cancelDiscovery() } catch (_: SecurityException) {}
-        try {
-            val started = adapter.startDiscovery()
-            Log.d(TAG, "startDiscovery() = $started")
-            onDiscovering(started)
-        } catch (e: SecurityException) { Log.e(TAG, "startDiscovery SecurityException", e); onDiscovering(false) }
-    } else {
+    // Vérification des permissions avant de lancer le scan
+    if (ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_SCAN)
+        != PermissionChecker.PERMISSION_GRANTED) {
         Log.e(TAG, "BLUETOOTH_SCAN manquante")
+        onDiscovering(false)
+        return
+    }
+
+    try {
+        // Arrêt du scan en cours si nécessaire
+        if (adapter.isDiscovering) {
+            adapter.cancelDiscovery()
+            // Petit délai pour laisser le système se stabiliser
+            Handler(Looper.getMainLooper()).postDelayed({
+                val started = adapter.startDiscovery()
+                Log.d(TAG, "startDiscovery() après cancel = $started")
+                onDiscovering(started)
+            }, 200)
+        } else {
+            val started = adapter.startDiscovery()
+            Log.d(TAG, "startDiscovery() direct = $started")
+            onDiscovering(started)
+        }
+    } catch (e: SecurityException) {
+        Log.e(TAG, "SecurityException lors du startDiscovery", e)
         onDiscovering(false)
     }
 }
