@@ -113,13 +113,26 @@ class BluetoothConnectionService {
         }
     }
 
+
+    /**
+     * ## removePeer
+     * Removes a peer from the list of active peers.
+     */
+    fun removePeer(peer: PeerConnection) {
+        peer.close()
+        peers.remove(peer)
+        _connectionEvents.tryEmit(ConnectionEvent.ClientDisconnected(peer.id))
+    }
+
+
+
     /**
      * ## stopAll
      * Stops all active connections by closing each peer connection and clearing the list.
      * This resets the service's state.
      */
     fun stopAll() {
-        peers.forEach { it.close() }
+        peers.forEach { removePeer(it) }
         peers.clear()
         serverMode = false
     }
