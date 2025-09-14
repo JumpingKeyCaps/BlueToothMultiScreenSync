@@ -23,6 +23,12 @@ sealed class BluetoothWorkflowEvent {
      */
     object RequestLocationEnable : BluetoothWorkflowEvent()
 
+    /**
+     * An event requesting the UI to let the user select the Bluetooth mode (Client or Server)
+     * before proceeding to scan or connect.
+     */
+    object RequestModeSelection : BluetoothWorkflowEvent()
+
     // ## Events emitted from Screen to Repository
     /**
      * A data class event containing the result of a permission request.
@@ -42,6 +48,12 @@ sealed class BluetoothWorkflowEvent {
      * @property enabled A boolean indicating if location services were successfully enabled.
      */
     data class LocationEnableResult(val enabled: Boolean) : BluetoothWorkflowEvent()
+    /**
+     * An event representing the user's selection of Bluetooth mode.
+     *
+     * @property isServer True if the user chose Server mode, false for Client mode.
+     */
+    data class ModeSelected(val isServer: Boolean) : BluetoothWorkflowEvent()
 
     // ## Internal Events
     /**
