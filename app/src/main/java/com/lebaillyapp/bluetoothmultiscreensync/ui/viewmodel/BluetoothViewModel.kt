@@ -57,11 +57,7 @@ class BluetoothViewModel(
      * Exposes the stream of connection-related events from the repository.
      */
     val connectionEvents: SharedFlow<BluetoothConnectionService.ConnectionEvent> = repo.connectionEvents
-    /**
-     * Exposes the [StateFlow] of the auto-connect service state from the repository.
-     */
-    val autoConnectState: StateFlow<com.lebaillyapp.bluetoothmultiscreensync.data.service.BluetoothAutoConnectService.AutoConnectState> =
-        repo.autoConnectState
+
 
     /**
      * ## init
@@ -126,6 +122,14 @@ class BluetoothViewModel(
                         proceedToNextStep()
                     }
                 }
+                is BluetoothWorkflowEvent.ModeSelected -> {
+                    if (event.isServer) {
+                        startServer()
+                    } else {
+                        _workflowState.emit(BluetoothWorkflowState.READY_TO_SCAN)
+                    }
+                    proceedToNextStep()
+                }
                 else -> {}
             }
         }
@@ -153,6 +157,11 @@ class BluetoothViewModel(
                 BluetoothWorkflowState.CHECKING_LOCATION -> {
                     _workflowState.emit(BluetoothWorkflowState.REQUESTING_LOCATION)
                     _workflowEvents.emit(BluetoothWorkflowEvent.RequestLocationEnable)
+                    _workflowEvents.emit(BluetoothWorkflowEvent.RequestModeSelection)
+                }
+
+                BluetoothWorkflowState.SELECT_MODE -> {
+                    _workflowEvents.emit(BluetoothWorkflowEvent.RequestModeSelection)
                 }
 
                 BluetoothWorkflowState.READY_TO_SCAN -> {
@@ -168,16 +177,7 @@ class BluetoothViewModel(
 
     // === WRAPPERS VERS REPO ===
 
-    /**
-     * ## handleScannedDevices
-     * Wrapper for [BluetoothRepository.startAutoConnect].
-     * Handles the list of discovered devices and starts the auto-connect process filtering.
-     */
-    fun handleScannedDevices(devices: List<BluetoothDevice>) {
-        viewModelScope.launch {
-              repo.startAutoConnect(devices)
-        }
-    }
+
 
 
 
