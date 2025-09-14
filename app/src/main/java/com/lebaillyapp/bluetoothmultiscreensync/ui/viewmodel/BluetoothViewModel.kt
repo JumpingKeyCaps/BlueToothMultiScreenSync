@@ -9,6 +9,7 @@ import com.lebaillyapp.bluetoothmultiscreensync.data.service.BluetoothWorkflowEv
 import com.lebaillyapp.bluetoothmultiscreensync.model.BluetoothWorkflowState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -32,11 +33,12 @@ class BluetoothViewModel(
      * A [MutableSharedFlow] representing the current state of the Bluetooth setup workflow.
      * It's configured with `replay = 1` to ensure new subscribers immediately receive the latest state.
      */
-    private val _workflowState = MutableSharedFlow<BluetoothWorkflowState>(replay = 1)
+    private val _workflowState = MutableStateFlow(BluetoothWorkflowState.IDLE)
+
     /**
      * The public-facing [SharedFlow] for the UI to observe the workflow state.
      */
-    val workflowState: SharedFlow<BluetoothWorkflowState> = _workflowState.asSharedFlow()
+    val workflowState: StateFlow<BluetoothWorkflowState> = _workflowState.asStateFlow()
 
     /**
      * A [MutableSharedFlow] for emitting one-time events to the UI, such as requests to open system settings.
