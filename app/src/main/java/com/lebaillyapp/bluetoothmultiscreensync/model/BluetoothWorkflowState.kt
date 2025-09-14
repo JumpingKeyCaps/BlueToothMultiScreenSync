@@ -37,6 +37,11 @@ enum class BluetoothWorkflowState {
      */
     REQUESTING_LOCATION,
     /**
+     * The state where the application waits for the user to select the Bluetooth mode (Client or Server)
+     * before starting the scanning process.
+     */
+    SELECT_MODE,
+    /**
      * The state where all prerequisites are met and the device is ready to start scanning for peers.
      */
     READY_TO_SCAN,
