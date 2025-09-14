@@ -31,6 +31,7 @@ import androidx.core.content.PermissionChecker
 import com.lebaillyapp.bluetoothmultiscreensync.ui.viewmodel.BluetoothViewModel
 import com.lebaillyapp.bluetoothmultiscreensync.data.service.BluetoothWorkflowEvent
 import com.lebaillyapp.bluetoothmultiscreensync.data.service.RealPeerConnection
+import com.lebaillyapp.bluetoothmultiscreensync.model.BluetoothWorkflowState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -53,11 +54,17 @@ fun BTScannerVM(activity: ComponentActivity, viewModel: BluetoothViewModel) {
     val devices = remember { mutableStateListOf<BluetoothDevice>() }
     var discovering by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
+    var showModeDialog by remember { mutableStateOf(false) }
+
+    // --- Workflow state ---
+    val workflowState by viewModel.workflowState.collectAsState()
+
+    // --- Flag ready to scan ---
+    val readyToScan by remember(workflowState, showModeDialog) {
+        derivedStateOf { workflowState == BluetoothWorkflowState.READY_TO_SCAN && !showModeDialog }
+    }
 
     // --- Launchers ---
-    /**
-     * A launcher for requesting multiple permissions. It sends the result back to the ViewModel.
-     */
     val requestPermsLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { perms ->
@@ -65,9 +72,6 @@ fun BTScannerVM(activity: ComponentActivity, viewModel: BluetoothViewModel) {
         viewModel.handleWorkflowEvent(BluetoothWorkflowEvent.PermissionsResult(allGranted))
     }
 
-    /**
-     * A launcher for requesting the user to enable Bluetooth. It sends the result back to the ViewModel.
-     */
     val enableBtLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
@@ -75,9 +79,6 @@ fun BTScannerVM(activity: ComponentActivity, viewModel: BluetoothViewModel) {
         viewModel.handleWorkflowEvent(BluetoothWorkflowEvent.BluetoothEnableResult(btEnabled))
     }
 
-    /**
-     * A launcher for prompting the user to enable location services. It sends the result back to the ViewModel.
-     */
     val locationLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
@@ -86,54 +87,29 @@ fun BTScannerVM(activity: ComponentActivity, viewModel: BluetoothViewModel) {
     }
 
     // --- Bluetooth Scan Receiver ---
-    /**
-     * A [DisposableEffect] to manage the lifecycle of the [BroadcastReceiver] for Bluetooth discovery.
-     * It registers the receiver when the Composable enters the composition and unregisters it when it leaves.
-     */
     DisposableEffect(Unit) {
         val filter = IntentFilter(BluetoothDevice.ACTION_FOUND)
         val receiver = object : BroadcastReceiver() {
             @SuppressLint("MissingPermission")
             override fun onReceive(context: Context, intent: Intent) {
-                when (intent.action) {
-                    BluetoothDevice.ACTION_FOUND -> {
-                        val device: BluetoothDevice? =
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
-                            } else {
-                                @Suppress("DEPRECATION")
-                                intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
-                            }
-
-                        device?.let {
-                            if (!devices.contains(it)) {
-                                devices.add(it)
-                            }
+                if (intent.action == BluetoothDevice.ACTION_FOUND) {
+                    val device: BluetoothDevice? =
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+                        } else {
+                            @Suppress("DEPRECATION")
+                            intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
                         }
-                    }
+                    device?.let { if (!devices.contains(it)) devices.add(it) }
                 }
             }
         }
 
-        // Register the receiver
-        ContextCompat.registerReceiver(
-            activity,
-            receiver,
-            filter,
-            ContextCompat.RECEIVER_NOT_EXPORTED
-        )
-
-        // Unregister on dispose
-        onDispose {
-            activity.unregisterReceiver(receiver)
-        }
+        ContextCompat.registerReceiver(activity, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        onDispose { activity.unregisterReceiver(receiver) }
     }
 
     // --- Collect workflow events ---
-    /**
-     * A [LaunchedEffect] that collects one-time events from the ViewModel.
-     * It triggers platform-specific actions like launching permission or settings screens.
-     */
     LaunchedEffect(Unit) {
         viewModel.workflowEvents.collectLatest { event ->
             when (event) {
@@ -147,48 +123,31 @@ fun BTScannerVM(activity: ComponentActivity, viewModel: BluetoothViewModel) {
                 is BluetoothWorkflowEvent.RequestBluetoothEnable -> enableBtLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
                 is BluetoothWorkflowEvent.RequestLocationEnable -> locationLauncher.launch(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
                 is BluetoothWorkflowEvent.StartScan -> startBtScanDebug(adapter, devices) { discovering = it }
+                is BluetoothWorkflowEvent.RequestModeSelection -> showModeDialog = true
                 is BluetoothWorkflowEvent.WorkflowError -> errorMessage = event.error
                 else -> {}
             }
         }
     }
 
-    // --- Retry scan every 10s ---
-    /**
-     * A [LaunchedEffect] that periodically checks and restarts Bluetooth discovery.
-     * It ensures the scan continues to find new devices without user intervention.
-     */
-    LaunchedEffect(adapter) {
-        while (true) {
-            if (adapter != null && !adapter.isDiscovering && hasScanPermission(activity)) {
+    // --- Retry scan uniquement si déjà prêt ---
+    LaunchedEffect(readyToScan) {
+        if (readyToScan && adapter != null && hasScanPermission(activity)) {
+            try {
                 adapter.startDiscovery().also { discovering = it }
-            }
-            delay(10_000)
-
-            // Attendre 10 secondes pour que le scan se termine
-            delay(10_000)
-
-            // Envoyer la liste des BluetoothDevice au ViewModel
-            // La liste 'devices' est celle qui est remplie par le BroadcastReceiver.
-            viewModel.handleScannedDevices(devices.toList())
-
+            } catch (_: SecurityException) { discovering = false }
+        } else if (!readyToScan && adapter?.isDiscovering == true) {
+            adapter.cancelDiscovery()
+            discovering = false
         }
-
     }
 
     // --- UI ---
-    /**
-     * The main UI layout for the screen.
-     */
     Column(modifier = Modifier.padding(16.dp)) {
         Text("=== BT Scanner VM ===", style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(8.dp))
-
-        val workflowState by viewModel.workflowState.collectAsState(initial = null)
         Text("État actuel: ${workflowState?.name ?: "IDLE"}")
-
         if (errorMessage.isNotEmpty()) Text("Erreur: $errorMessage", color = MaterialTheme.colorScheme.error)
-
         Spacer(Modifier.height(8.dp))
 
         val btEnabled = adapter?.isEnabled == true
@@ -204,16 +163,39 @@ fun BTScannerVM(activity: ComponentActivity, viewModel: BluetoothViewModel) {
 
         Spacer(Modifier.height(8.dp))
         Text("Devices trouvés: ${devices.size}", style = MaterialTheme.typography.titleSmall)
-
-        devices.forEach { device ->
+        devices.sortedBy { it.name ?: "" }.forEach { device ->
             val name = try {
                 if (ContextCompat.checkSelfPermission(activity, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED)
-                    device.name ?: "Unknown" else "Permission manquante"
-            } catch (_: SecurityException) {
-                "SecurityException"
-            }
+                    device.name ?: "Unknown"
+                else "Permission manquante"
+            } catch (_: SecurityException) { "SecurityException" }
             Text("• $name / ${device.address}")
         }
+    }
+
+    // --- Dialog pour sélectionner le mode ---
+    if (showModeDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Sélection du mode") },
+            text = { Text("Choisissez le mode de fonctionnement Bluetooth") },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        viewModel.handleWorkflowEvent(BluetoothWorkflowEvent.ModeSelected(isServer = true))
+                        showModeDialog = false
+                    }
+                ) { Text("Serveur") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        viewModel.handleWorkflowEvent(BluetoothWorkflowEvent.ModeSelected(isServer = false))
+                        showModeDialog = false
+                    }
+                ) { Text("Client") }
+            }
+        )
     }
 }
 
