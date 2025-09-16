@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.lebaillyapp.bluetoothmultiscreensync.data.repository.BluetoothRepository
+import com.lebaillyapp.bluetoothmultiscreensync.data.service.BluetoothConnectionService
 import com.lebaillyapp.bluetoothmultiscreensync.ui.viewmodel.BluetoothViewModel
 
 /**
@@ -23,22 +24,18 @@ import com.lebaillyapp.bluetoothmultiscreensync.ui.viewmodel.BluetoothViewModel
  *
  * @property context Le contexte Android utilisé pour créer le [BluetoothRepository].
  */
-class BluetoothViewModelFactory(
-    private val context: Context
-) : ViewModelProvider.Factory {
+class BluetoothViewModelFactory() : ViewModelProvider.Factory {
 
-    /**
-     * Crée une instance du ViewModel demandé si le type est compatible.
-     *
-     * @param T Le type de ViewModel à créer.
-     * @param modelClass La classe du ViewModel demandé.
-     * @return Une instance du ViewModel demandé.
-     * @throws IllegalArgumentException si la classe demandée n'est pas [BluetoothViewModel].
-     */
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(BluetoothViewModel::class.java)) {
-            val repo = BluetoothRepository(context.applicationContext)
+            // 1. Crée le service bas-niveau
+            val connectionService = BluetoothConnectionService()
+
+            // 2. Injecte dans le repository
+            val repo = BluetoothRepository(connectionService)
+
+            // 3. Crée le ViewModel
             return BluetoothViewModel(repo) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
