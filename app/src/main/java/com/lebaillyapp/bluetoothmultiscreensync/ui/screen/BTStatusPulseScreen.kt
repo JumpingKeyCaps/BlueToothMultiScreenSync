@@ -46,6 +46,9 @@ private const val TAG = "BTStatusPulseScreen"
  */
 @Composable
 fun BTStatusPulseScreen(){
+
+    /**
+
     val context = LocalContext.current
     val view = LocalView.current
     val activity = view.context as? Activity
@@ -167,4 +170,9 @@ fun BTStatusPulseScreen(){
     LaunchedEffect(animatedFraction, autoState, clientsCount) {
         Log.d(TAG, "State=$stateText, clients=$clientsCount, pulseFraction=$smoothFraction, pulseColor=$pulseColor")
     }
+
+
+    */
+
+
 }
