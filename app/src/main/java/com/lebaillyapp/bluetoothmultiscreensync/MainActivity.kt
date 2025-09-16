@@ -14,6 +14,7 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
 import androidx.annotation.RequiresPermission
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,9 +22,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import com.lebaillyapp.bluetoothmultiscreensync.data.repository.BluetoothRepository
+import com.lebaillyapp.bluetoothmultiscreensync.data.service.BluetoothConnectionService
+import com.lebaillyapp.bluetoothmultiscreensync.ui.factory.BluetoothViewModelFactory
+import com.lebaillyapp.bluetoothmultiscreensync.ui.screen.BTScannerVM
 import com.lebaillyapp.bluetoothmultiscreensync.ui.screen.BTStatusPulseScreen
 import com.lebaillyapp.bluetoothmultiscreensync.ui.screen.BtScannerWithPermissions
 import com.lebaillyapp.bluetoothmultiscreensync.ui.theme.BlueToothMultiScreenSyncTheme
+import com.lebaillyapp.bluetoothmultiscreensync.ui.viewmodel.BluetoothViewModel
 
 /**
  * Main entry point of the app.
@@ -34,6 +42,12 @@ import com.lebaillyapp.bluetoothmultiscreensync.ui.theme.BlueToothMultiScreenSyn
  * 3- Sets the Compose UI with [BluetoothDemoScreen] for testing BT features.
  */
 class MainActivity : ComponentActivity() {
+
+
+    private val viewModel: BluetoothViewModel by viewModels {
+        BluetoothViewModelFactory()
+    }
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -52,7 +66,11 @@ class MainActivity : ComponentActivity() {
                     // Test BT feature flow !
                   //  BTStatusPulseScreen()
 
-                    BtScannerWithPermissions(this@MainActivity)
+                 //   BtScannerWithPermissions(this@MainActivity)
+
+
+                    BTScannerVM(this@MainActivity, viewModel = viewModel)
+
                 }
             }
         }
