@@ -5,63 +5,57 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
+import android.content.*
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.annotation.RequiresPermission
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.PermissionChecker
-import com.lebaillyapp.bluetoothmultiscreensync.ui.viewmodel.BluetoothViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
 import com.lebaillyapp.bluetoothmultiscreensync.data.service.BluetoothWorkflowEvent
-import com.lebaillyapp.bluetoothmultiscreensync.data.service.RealPeerConnection
-import com.lebaillyapp.bluetoothmultiscreensync.model.BluetoothWorkflowState
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.launch
+import com.lebaillyapp.bluetoothmultiscreensync.ui.viewmodel.BluetoothViewModel
 
-private const val TAG = "BTScannerVMAdapter"
+private const val TAG = "BTScannerComposable"
 
-/**
- * ## BTScannerVM
- * A Composable function that acts as the UI and the platform-specific integration layer for the Bluetooth workflow.
- * It observes the [BluetoothViewModel] for state changes and one-time events,
- * and it uses Android APIs to request permissions, enable Bluetooth, and discover nearby devices.
- * This Composable also renders the UI based on the current workflow state and discovered devices.
- *
- * @param activity The [ComponentActivity] context, required for launching system activities and checking permissions.
- * @param viewModel The [BluetoothViewModel] instance that manages the workflow state.
- */
 @Composable
 fun BTScannerVM(activity: ComponentActivity, viewModel: BluetoothViewModel) {
     val adapter = remember { BluetoothAdapter.getDefaultAdapter() }
     val devices = remember { mutableStateListOf<BluetoothDevice>() }
     var discovering by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf("") }
     var showModeDialog by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf("") }
 
-    // --- Workflow state ---
+    val handler = remember { Handler(Looper.getMainLooper()) }
+
+    // --- Collect workflow state properly ---
     val workflowState by viewModel.workflowState.collectAsState()
 
-    // --- Flag ready to scan ---
-    val readyToScan by remember(workflowState, showModeDialog) {
-        derivedStateOf { workflowState == BluetoothWorkflowState.READY_TO_SCAN && !showModeDialog }
+    // --- Retry scan every 10 sec ---
+    val retryRunnable = object : Runnable {
+        @SuppressLint("MissingPermission")
+        override fun run() {
+            if (workflowState == com.lebaillyapp.bluetoothmultiscreensync.model.BluetoothWorkflowState.SCANNING &&
+                adapter != null && !adapter.isDiscovering
+            ) {
+                startBtScanDebug(activity, adapter, devices) { discovering = it }
+            }
+            handler.postDelayed(this, 10000)
+        }
     }
 
     // --- Launchers ---
@@ -69,181 +63,171 @@ fun BTScannerVM(activity: ComponentActivity, viewModel: BluetoothViewModel) {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { perms ->
         val allGranted = perms.all { it.value }
-        viewModel.handleWorkflowEvent(BluetoothWorkflowEvent.PermissionsResult(allGranted))
+        viewModel.handleWorkflowEvent(
+            BluetoothWorkflowEvent.PermissionsResult(allGranted)
+        )
     }
 
     val enableBtLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
-        val btEnabled = adapter?.isEnabled == true
-        viewModel.handleWorkflowEvent(BluetoothWorkflowEvent.BluetoothEnableResult(btEnabled))
+        viewModel.handleWorkflowEvent(
+            BluetoothWorkflowEvent.BluetoothEnableResult(
+                adapter?.isEnabled == true
+            )
+        )
     }
 
     val locationLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
-        val locationEnabled = isLocationEnabled(activity)
-        viewModel.handleWorkflowEvent(BluetoothWorkflowEvent.LocationEnableResult(locationEnabled))
+        viewModel.handleWorkflowEvent(
+            BluetoothWorkflowEvent.LocationEnableResult(
+                isLocationEnabled(activity)
+            )
+        )
     }
 
-    // --- Bluetooth Scan Receiver ---
-    DisposableEffect(Unit) {
-        val filter = IntentFilter(BluetoothDevice.ACTION_FOUND)
-        val receiver = object : BroadcastReceiver() {
-            @SuppressLint("MissingPermission")
-            override fun onReceive(context: Context, intent: Intent) {
-                if (intent.action == BluetoothDevice.ACTION_FOUND) {
-                    val device: BluetoothDevice? =
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
-                        } else {
-                            @Suppress("DEPRECATION")
-                            intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
-                        }
-                    device?.let { if (!devices.contains(it)) devices.add(it) }
-                }
-            }
-        }
-
-        ContextCompat.registerReceiver(activity, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
-        onDispose { activity.unregisterReceiver(receiver) }
-    }
-
-    // --- Collect workflow events ---
+    // --- Workflow events collector ---
     LaunchedEffect(Unit) {
-        viewModel.workflowEvents.collectLatest { event ->
+        viewModel.workflowEvents.collect { event ->
             when (event) {
                 is BluetoothWorkflowEvent.RequestPermissions -> {
                     val missing = getRequiredPermissions().filter {
                         ContextCompat.checkSelfPermission(activity, it) != PackageManager.PERMISSION_GRANTED
                     }
                     if (missing.isNotEmpty()) requestPermsLauncher.launch(missing.toTypedArray())
-                    else viewModel.handleWorkflowEvent(BluetoothWorkflowEvent.PermissionsResult(true))
                 }
-                is BluetoothWorkflowEvent.RequestBluetoothEnable -> enableBtLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
-                is BluetoothWorkflowEvent.RequestLocationEnable -> locationLauncher.launch(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
-                is BluetoothWorkflowEvent.StartScan -> startBtScanDebug(adapter, devices) { discovering = it }
-                is BluetoothWorkflowEvent.RequestModeSelection -> showModeDialog = true
-                is BluetoothWorkflowEvent.WorkflowError -> errorMessage = event.error
+                is BluetoothWorkflowEvent.RequestBluetoothEnable -> {
+                    enableBtLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+                }
+                is BluetoothWorkflowEvent.RequestLocationEnable -> {
+                    locationLauncher.launch(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                }
+                is BluetoothWorkflowEvent.RequestModeSelection -> {
+                    showModeDialog = true
+                }
+                is BluetoothWorkflowEvent.StartScan -> {
+                    startBtScanDebug(activity, adapter, devices) { discovering = it }
+                    handler.postDelayed(retryRunnable, 10000)
+                }
+                is BluetoothWorkflowEvent.WorkflowError -> {
+                    errorMessage = event.error
+                }
                 else -> {}
             }
         }
     }
 
-    // --- Retry scan uniquement si déjà prêt ---
-    LaunchedEffect(readyToScan) {
-        if (readyToScan && adapter != null && hasScanPermission(activity)) {
-            try {
-                adapter.startDiscovery().also { discovering = it }
-            } catch (_: SecurityException) { discovering = false }
-        } else if (!readyToScan && adapter?.isDiscovering == true) {
-            adapter.cancelDiscovery()
-            discovering = false
-        }
-    }
-
     // --- UI ---
     Column(modifier = Modifier.padding(16.dp)) {
-        Text("=== BT Scanner VM ===", style = MaterialTheme.typography.titleMedium)
+        Text("=== BT Scanner ===", style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(8.dp))
-        Text("État actuel: ${workflowState?.name ?: "IDLE"}")
+
+        Text("État: $workflowState")
         if (errorMessage.isNotEmpty()) Text("Erreur: $errorMessage", color = MaterialTheme.colorScheme.error)
         Spacer(Modifier.height(8.dp))
 
-        val btEnabled = adapter?.isEnabled == true
-        val locationEnabled = isLocationEnabled(activity)
-        val permsGranted = getRequiredPermissions().all {
-            ContextCompat.checkSelfPermission(activity, it) == PackageManager.PERMISSION_GRANTED
-        }
-
-        Text("✓ Permissions: ${if (permsGranted) "OK" else "NOK"}")
-        Text("✓ Bluetooth: ${if (btEnabled) "ON" else "OFF"}")
-        Text("✓ Location: ${if (locationEnabled) "ON" else "OFF"}")
+        Text("✓ Permissions: ${if (getRequiredPermissions().all { ContextCompat.checkSelfPermission(activity,it)==PackageManager.PERMISSION_GRANTED }) "OK" else "NOK"}")
+        Text("✓ Bluetooth: ${if (adapter?.isEnabled == true) "ON" else "OFF"}")
+        Text("✓ Location: ${if (isLocationEnabled(activity)) "ON" else "OFF"}")
         Text("✓ Discovering: $discovering")
-
         Spacer(Modifier.height(8.dp))
-        Text("Devices trouvés: ${devices.size}", style = MaterialTheme.typography.titleSmall)
-        devices.sortedBy { it.name ?: "" }.forEach { device ->
+
+        Text("Devices (${devices.size}):", style = MaterialTheme.typography.titleSmall)
+        devices.forEach { device ->
             val name = try {
-                if (ContextCompat.checkSelfPermission(activity, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED)
+                if (ContextCompat.checkSelfPermission(activity, Manifest.permission.BLUETOOTH_CONNECT) ==
+                    PermissionChecker.PERMISSION_GRANTED
+                ) {
                     device.name ?: "Unknown"
-                else "Permission manquante"
-            } catch (_: SecurityException) { "SecurityException" }
+                } else "Permission manquante"
+            } catch (_: SecurityException) {
+                "SecurityException"
+            }
             Text("• $name / ${device.address}")
         }
     }
 
-    // --- Dialog pour sélectionner le mode ---
+    // --- Mode dialog ---
     if (showModeDialog) {
-        androidx.compose.material3.AlertDialog(
+        AlertDialog(
             onDismissRequest = {},
-            title = { Text("Sélection du mode") },
-            text = { Text("Choisissez le mode de fonctionnement Bluetooth") },
-            confirmButton = {
-                androidx.compose.material3.TextButton(
-                    onClick = {
-                        viewModel.handleWorkflowEvent(BluetoothWorkflowEvent.ModeSelected(isServer = true))
-                        showModeDialog = false
-                    }
-                ) { Text("Serveur") }
-            },
-            dismissButton = {
-                androidx.compose.material3.TextButton(
-                    onClick = {
-                        viewModel.handleWorkflowEvent(BluetoothWorkflowEvent.ModeSelected(isServer = false))
-                        showModeDialog = false
-                    }
-                ) { Text("Client") }
-            }
+            title = { Text("Mode Bluetooth") },
+            text = { Text("Choisissez le mode de fonctionnement") },
+            confirmButton = { TextButton(onClick = {
+                viewModel.handleWorkflowEvent(
+                    BluetoothWorkflowEvent.ModeSelected(true)
+                )
+                showModeDialog=false
+            }) { Text("Serveur") } },
+            dismissButton = { TextButton(onClick = {
+                viewModel.handleWorkflowEvent(
+                    BluetoothWorkflowEvent.ModeSelected(false)
+                )
+                showModeDialog=false
+            }) { Text("Client") } }
         )
     }
+
+    // --- Receiver discovery ---
+    DisposableEffect(Unit) {
+        val filter = IntentFilter().apply {
+            addAction(BluetoothDevice.ACTION_FOUND)
+            addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
+        }
+        val receiver = object : BroadcastReceiver() {
+            @SuppressLint("MissingPermission")
+            override fun onReceive(context: Context?, intent: Intent?) {
+                when(intent?.action) {
+                    BluetoothDevice.ACTION_FOUND -> {
+                        val device: BluetoothDevice? = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+                        device?.let {
+                            if (!devices.any { it.address == device.address }) devices.add(it)
+                        }
+                    }
+                    BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
+                        discovering = false
+                    }
+                }
+            }
+        }
+        activity.registerReceiver(receiver, filter)
+        onDispose {
+            activity.unregisterReceiver(receiver)
+            handler.removeCallbacks(retryRunnable)
+        }
+    }
+
+    // --- Start workflow ---
+    LaunchedEffect(Unit) { viewModel.startSequentialWorkflow() }
 }
 
+
 // --- Helpers ---
-/**
- * A helper function to get the list of required permissions based on the Android API level.
- * @return An array of strings representing the required permissions.
- */
 private fun getRequiredPermissions(): Array<String> =
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
         arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.ACCESS_FINE_LOCATION)
     else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
 
-/**
- * A helper function to check if location services are enabled on the device.
- * @param context The application context.
- * @return True if a location provider is enabled, false otherwise.
- */
 private fun isLocationEnabled(context: Context): Boolean {
     val manager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
     return manager.isProviderEnabled(LocationManager.GPS_PROVIDER) || manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
 }
 
-/**
- * A helper function to check if the BLUETOOTH_SCAN permission has been granted.
- * @param context The application context.
- * @return True if the permission is granted, false otherwise.
- */
-private fun hasScanPermission(context: Context): Boolean {
-    return ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED
-}
-
-/**
- * A helper function to start the Bluetooth discovery process.
- * It's annotated with [RequiresPermission] to indicate the necessary permission.
- * @param adapter The [BluetoothAdapter] instance.
- * @param devices The mutable list to add discovered devices to.
- * @param onDiscovering A callback to update the discovering state.
- */
-@RequiresPermission(Manifest.permission.BLUETOOTH_SCAN)
+@SuppressLint("MissingPermission")
 private fun startBtScanDebug(
+    context: Context,
     adapter: BluetoothAdapter?,
     devices: SnapshotStateList<BluetoothDevice>,
     onDiscovering: (Boolean) -> Unit
 ) {
-    if (adapter == null) return
+    if(adapter==null) return
+
     try {
-        if (adapter.isDiscovering) adapter.cancelDiscovery()
+        if(adapter.isDiscovering) adapter.cancelDiscovery()
         adapter.startDiscovery().also { onDiscovering(it) }
-    } catch (_: SecurityException) { onDiscovering(false) }
+    } catch(_: SecurityException){
+        onDiscovering(false)
+    }
 }
