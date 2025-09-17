@@ -22,27 +22,52 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.compose.rememberNavController
+import com.lebaillyapp.bluetoothmultiscreensync.data.repository.BluetoothRepository
+import com.lebaillyapp.bluetoothmultiscreensync.navigation.AppNavGraph
 
 import com.lebaillyapp.bluetoothmultiscreensync.ui.theme.BlueToothMultiScreenSyncTheme
+import com.lebaillyapp.bluetoothmultiscreensync.viewmodel.SetupViewModel
+import com.lebaillyapp.bluetoothmultiscreensync.viewmodel.SetupViewModelFactory
+import java.util.UUID
+
+object BluetoothConstants {
+    val SERVICE_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB") // SPP standard
+}
 
 class MainActivity : ComponentActivity() {
-
-
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        val bluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
+        val repository = BluetoothRepository(
+            context = applicationContext, // safe, applicationContext pas activity
+            adapter = bluetoothAdapter,
+            serviceUUID = BluetoothConstants.SERVICE_UUID
+        )
+
         setContent {
             BlueToothMultiScreenSyncTheme {
-                Column(modifier = Modifier.fillMaxSize()) {
+                val navController = rememberNavController()
+                val setupViewModel: SetupViewModel = viewModel(
+                    factory = SetupViewModelFactory(
+                        repository = repository,
+                        bluetoothAdapter = bluetoothAdapter,
+                        application = application
+                    )
+                )
 
-                }
+                // NavGraph centralisé
+                AppNavGraph(
+                    navController = navController,
+                    setupViewModel = setupViewModel
+                )
             }
         }
     }
-
-
-
 }
 
 
