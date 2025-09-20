@@ -24,7 +24,13 @@ fun AppNavGraph(
         composable(Screen.Setup.route) {
             SetupScreen(
                 viewModel = setupViewModel,
-                onReady = { navController.navigate(Screen.RoleSelection.route) }
+                onReady = {
+                    navController.navigate(Screen.RoleSelection.route){
+                        popUpTo(Screen.Setup.route) {
+                            inclusive = true // remove from backstack
+                            }
+                    }
+                }
             )
         }
 
