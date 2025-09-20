@@ -44,7 +44,7 @@ class MainActivity : ComponentActivity() {
 
         val bluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
         val repository = BluetoothRepository(
-            context = applicationContext, // safe, applicationContext pas activity
+            context = applicationContext,
             adapter = bluetoothAdapter,
             serviceUUID = BluetoothConstants.SERVICE_UUID
         )
@@ -60,10 +60,11 @@ class MainActivity : ComponentActivity() {
                     )
                 )
 
-                // NavGraph centralisé
                 AppNavGraph(
                     navController = navController,
-                    setupViewModel = setupViewModel
+                    setupViewModel = setupViewModel,
+                    repository = repository,
+                    bluetoothAdapter = bluetoothAdapter,
                 )
             }
         }
