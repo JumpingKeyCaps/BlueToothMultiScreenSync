@@ -9,6 +9,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import com.lebaillyapp.bluetoothmultiscreensync.domain.model.ServerState
 import com.lebaillyapp.bluetoothmultiscreensync.viewmodel.RoleViewModel
 
 @Composable
@@ -52,7 +53,11 @@ fun RoleSelectionScreen(
 
         // Server state display
         if (selectedRole == RoleViewModel.Role.Server) {
-            Text("Server State: $serverState")
+            when (serverState) {
+                is ServerState.Listening -> { Text("Server is listening for incoming connections...") }
+                is ServerState.Error -> { Text("Error: ${(serverState as ServerState.Error).throwable.message}") }
+                is ServerState.Stopped -> { Text("Server is stopped!")}
+            }
         }
 
         // Client scan results
