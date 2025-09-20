@@ -29,7 +29,7 @@ import com.lebaillyapp.bluetoothmultiscreensync.navigation.AppNavGraph
 
 import com.lebaillyapp.bluetoothmultiscreensync.ui.theme.BlueToothMultiScreenSyncTheme
 import com.lebaillyapp.bluetoothmultiscreensync.viewmodel.SetupViewModel
-import com.lebaillyapp.bluetoothmultiscreensync.viewmodel.SetupViewModelFactory
+import com.lebaillyapp.bluetoothmultiscreensync.viewmodel.factory.SetupViewModelFactory
 import java.util.UUID
 
 object BluetoothConstants {
