@@ -1,10 +1,11 @@
-package com.lebaillyapp.bluetoothmultiscreensync.viewmodel
+package com.lebaillyapp.bluetoothmultiscreensync.viewmodel.factory
 
 import android.app.Application
 import android.bluetooth.BluetoothAdapter
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.lebaillyapp.bluetoothmultiscreensync.data.repository.BluetoothRepository
+import com.lebaillyapp.bluetoothmultiscreensync.viewmodel.SetupViewModel
 
 class SetupViewModelFactory(
     private val application: Application,
