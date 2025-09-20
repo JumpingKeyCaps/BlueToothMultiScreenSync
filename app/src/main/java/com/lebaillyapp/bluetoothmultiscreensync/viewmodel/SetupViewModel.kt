@@ -1,5 +1,6 @@
 package com.lebaillyapp.bluetoothmultiscreensync.viewmodel
 
+import android.Manifest
 import android.app.Application
 import android.bluetooth.BluetoothAdapter
 import android.location.LocationManager
@@ -36,6 +37,22 @@ class SetupViewModel(
         locationEnabled
     ) { perms, bt, loc -> perms && bt && loc }
         .stateIn(viewModelScope, SharingStarted.Lazily, false)
+
+
+    init {
+        _permissionsGranted.value = checkPermissions()
+    }
+
+    private fun checkPermissions(): Boolean {
+        val perms = arrayOf(
+            Manifest.permission.BLUETOOTH_CONNECT,
+            Manifest.permission.BLUETOOTH_SCAN,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        )
+        return perms.all { perm ->
+            context.checkSelfPermission(perm) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+    }
 
     fun updatePermissions(granted: Boolean) {
         _permissionsGranted.value = granted
