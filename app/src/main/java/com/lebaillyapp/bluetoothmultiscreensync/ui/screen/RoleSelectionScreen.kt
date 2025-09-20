@@ -1,6 +1,9 @@
 package com.lebaillyapp.bluetoothmultiscreensync.ui.screen
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -62,23 +65,28 @@ fun RoleSelectionScreen(
 
         // Client scan results
         if (selectedRole == RoleViewModel.Role.Client) {
-            Text("Scanning nearby devices:")
-            if (scannedDevices.isEmpty()) {
-                Text("No devices found yet...")
-            } else {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    scannedDevices.forEach { device ->
-                        Button(
-                            onClick = {
-                                // Connect to device when clicked
-                                roleViewModel.selectRole(RoleViewModel.Role.Client)
-                                // Optionally: implement connection flow here
-                            },
-                            modifier = Modifier.fillMaxWidth()
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                if (scannedDevices.isEmpty()) {
+                    item {
+                        Text("No devices found yet...")
+                    }
+                } else {
+                    items(scannedDevices, key = { it.address }) { device ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    // Action : connecter au device
+                                    roleViewModel.selectRole(RoleViewModel.Role.Client)
+                                }
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("${device.name ?: "Unknown"} (${device.address})")
+                            Text("${device.name ?: "Unknown"}")
+                            Text(device.address)
                         }
                     }
                 }
