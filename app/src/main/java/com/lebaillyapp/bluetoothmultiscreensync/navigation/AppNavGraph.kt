@@ -1,12 +1,18 @@
 package com.lebaillyapp.bluetoothmultiscreensync.navigation
 
+import android.app.Application
+import android.bluetooth.BluetoothAdapter
 import androidx.compose.runtime.Composable
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import com.lebaillyapp.bluetoothmultiscreensync.data.repository.BluetoothRepository
 import com.lebaillyapp.bluetoothmultiscreensync.ui.screen.RoleSelectionScreen
 import com.lebaillyapp.bluetoothmultiscreensync.ui.screen.SetupScreen
+import com.lebaillyapp.bluetoothmultiscreensync.viewmodel.RoleViewModel
 import com.lebaillyapp.bluetoothmultiscreensync.viewmodel.SetupViewModel
+import com.lebaillyapp.bluetoothmultiscreensync.viewmodel.factory.RoleViewModelFactory
 
 sealed class Screen(val route: String) {
     object Setup : Screen("setup")
@@ -18,7 +24,8 @@ sealed class Screen(val route: String) {
 fun AppNavGraph(
     navController: NavHostController,
     setupViewModel: SetupViewModel,
-    // injecter ici d'autres VM si nécessaire
+    repository: BluetoothRepository,
+    bluetoothAdapter: BluetoothAdapter
 ) {
     NavHost(navController = navController, startDestination = Screen.Setup.route) {
         composable(Screen.Setup.route) {
@@ -35,7 +42,17 @@ fun AppNavGraph(
         }
 
         composable(Screen.RoleSelection.route) {
-            RoleSelectionScreen(navController)
+            // Create RoleViewModel with factory
+            val roleViewModel: RoleViewModel = viewModel(
+                factory = RoleViewModelFactory(
+                    repository = repository,
+                    bluetoothAdapter = bluetoothAdapter
+                )
+            )
+            RoleSelectionScreen(
+                navController = navController,
+                roleViewModel = roleViewModel
+            )
         }
 
         composable(Screen.Canvas.route) {
