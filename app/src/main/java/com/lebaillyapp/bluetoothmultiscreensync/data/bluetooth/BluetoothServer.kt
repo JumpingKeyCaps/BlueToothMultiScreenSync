@@ -82,6 +82,11 @@ class BluetoothServer(
                     try {
                         val socket: BluetoothSocket = serverSocket?.accept() ?: break
                         val connection = BluetoothConnection(socket, scope)
+
+                        // Mettre à jour l'état serveur
+                        _state.emit(ServerState.Connected(socket.remoteDevice))
+
+                        // Émettre la connexion dans le SharedFlow
                         _incomingConnections.emit(connection)
                     } catch (e: IOException) {
                         _state.emit(ServerState.Error(e))
