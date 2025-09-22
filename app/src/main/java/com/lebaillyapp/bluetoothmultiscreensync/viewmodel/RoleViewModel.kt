@@ -7,24 +7,17 @@ import androidx.annotation.RequiresPermission
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lebaillyapp.bluetoothmultiscreensync.data.repository.BluetoothRepository
+import com.lebaillyapp.bluetoothmultiscreensync.domain.model.ConnectionState
 import com.lebaillyapp.bluetoothmultiscreensync.domain.model.ServerState
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
 /**
  * ## RoleViewModel
  *
- * Manages the role selection screen logic: Client or Server.
- * Exposes flows for server state, scanned devices, and the currently selected role.
- *
- * ### Responsibilities:
- * - Handle role selection (Server / Client)
- * - Start / stop the Bluetooth server or scan accordingly
- * - Expose discovered devices for client
+ * Handles role selection and Bluetooth operations.
+ * - Server → starts listening
+ * - Client → scans devices and connects on demand
  */
 class RoleViewModel(
     private val repository: BluetoothRepository,
@@ -42,14 +35,14 @@ class RoleViewModel(
     val serverState: StateFlow<ServerState> = repository.serverState
 
     /** Current client connection state */
-    val clientState: StateFlow<com.lebaillyapp.bluetoothmultiscreensync.domain.model.ConnectionState> =
+    val clientState: StateFlow<ConnectionState> =
         repository.clientState.stateIn(viewModelScope, SharingStarted.Lazily, repository.clientState.value)
+
+    /** The current active client connection, if any */
+    val currentConnection get() = repository.currentConnection
 
     /**
      * Selects a role and launches the corresponding Bluetooth operations.
-     *
-     * - Server → start server
-     * - Client → start scanning
      */
     @Suppress("MissingPermission")
     fun selectRole(selectedRole: Role) {
@@ -60,14 +53,26 @@ class RoleViewModel(
         }
     }
 
-    /** Stops the current role operations (server / scan) */
+    /** Stops the current role operations (server / scan / disconnect client) */
     @RequiresPermission(Manifest.permission.BLUETOOTH_SCAN)
     fun stopRole() {
         when (_role.value) {
             Role.Server -> repository.stopServer()
-            Role.Client -> repository.stopScan()
+            Role.Client -> {
+                repository.stopScan()
+                repository.disconnect()
+            }
             else -> {}
         }
+    }
+
+    /**
+     * Connects to a Bluetooth device as client.
+     * Cancels any existing client connection.
+     */
+    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
+    fun connectToDevice(device: BluetoothDevice) {
+        repository.connectToDevice(device)
     }
 
     /** Server or Client roles */
