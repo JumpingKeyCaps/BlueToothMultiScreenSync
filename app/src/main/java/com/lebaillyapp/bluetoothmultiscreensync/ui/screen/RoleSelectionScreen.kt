@@ -95,6 +95,10 @@ fun RoleSelectionScreen(
                 is ServerState.Listening -> Text("Server is listening for incoming connections...")
                 is ServerState.Error -> Text("Error: ${(serverState as ServerState.Error).throwable.message}")
                 is ServerState.Stopped -> Text("Server is stopped!")
+                is ServerState.Connected -> {
+                    val device = (serverState as ServerState.Connected).device
+                    Text("Connected to device: ${device.name ?: "Unknown"} (${device.address})")
+                }
             }
         }
 
