@@ -8,6 +8,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import com.lebaillyapp.bluetoothmultiscreensync.data.repository.BluetoothRepository
+import com.lebaillyapp.bluetoothmultiscreensync.ui.screen.PlaygroundScreen
 import com.lebaillyapp.bluetoothmultiscreensync.ui.screen.RoleSelectionScreen
 import com.lebaillyapp.bluetoothmultiscreensync.ui.screen.SetupScreen
 import com.lebaillyapp.bluetoothmultiscreensync.viewmodel.RoleViewModel
@@ -17,7 +18,7 @@ import com.lebaillyapp.bluetoothmultiscreensync.viewmodel.factory.RoleViewModelF
 sealed class Screen(val route: String) {
     object Setup : Screen("setup")
     object RoleSelection : Screen("role_selection")
-    object Canvas : Screen("canvas")
+    object Playground : Screen("playground")
 }
 
 @Composable
@@ -27,6 +28,15 @@ fun AppNavGraph(
     repository: BluetoothRepository,
     bluetoothAdapter: BluetoothAdapter
 ) {
+
+    // Create RoleViewModel with factory
+    val roleViewModel: RoleViewModel = viewModel(
+        factory = RoleViewModelFactory(
+            repository = repository,
+            bluetoothAdapter = bluetoothAdapter
+        )
+    )
+
     NavHost(navController = navController, startDestination = Screen.Setup.route) {
         composable(Screen.Setup.route) {
             SetupScreen(
@@ -42,21 +52,15 @@ fun AppNavGraph(
         }
 
         composable(Screen.RoleSelection.route) {
-            // Create RoleViewModel with factory
-            val roleViewModel: RoleViewModel = viewModel(
-                factory = RoleViewModelFactory(
-                    repository = repository,
-                    bluetoothAdapter = bluetoothAdapter
-                )
-            )
+
             RoleSelectionScreen(
                 navController = navController,
                 roleViewModel = roleViewModel
             )
         }
 
-        composable(Screen.Canvas.route) {
-          //  CanvasScreen()
+        composable(Screen.Playground.route) {
+            PlaygroundScreen(roleViewModel)
         }
     }
 }
