@@ -62,6 +62,23 @@ fun RoleSelectionScreen(
         }
     }
 
+
+
+    LaunchedEffect(selectedRole, serverState, clientState) {
+        val connected = when (selectedRole) {
+            RoleViewModel.Role.Server -> serverState is ServerState.Connected
+            RoleViewModel.Role.Client -> clientState is ConnectionState.Connected
+            else -> false
+        }
+        if (connected) {
+            navController.navigate("playground") {
+                // Enlève RoleSelection de la backstack
+                popUpTo("role_selection") { inclusive = true }
+            }
+        }
+    }
+
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -137,11 +154,6 @@ fun RoleSelectionScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Mock navigation
-        if (selectedRole != null) {
-            Button(onClick = { navController.navigate("playground") }) {
-                Text("Go to playground")
-            }
-        }
+
     }
 }
