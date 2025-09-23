@@ -11,8 +11,10 @@ import com.lebaillyapp.bluetoothmultiscreensync.data.repository.BluetoothReposit
 import com.lebaillyapp.bluetoothmultiscreensync.ui.screen.PlaygroundScreen
 import com.lebaillyapp.bluetoothmultiscreensync.ui.screen.RoleSelectionScreen
 import com.lebaillyapp.bluetoothmultiscreensync.ui.screen.SetupScreen
+import com.lebaillyapp.bluetoothmultiscreensync.viewmodel.PlaygroundViewModel
 import com.lebaillyapp.bluetoothmultiscreensync.viewmodel.RoleViewModel
 import com.lebaillyapp.bluetoothmultiscreensync.viewmodel.SetupViewModel
+import com.lebaillyapp.bluetoothmultiscreensync.viewmodel.factory.PlaygroundViewModelFactory
 import com.lebaillyapp.bluetoothmultiscreensync.viewmodel.factory.RoleViewModelFactory
 
 sealed class Screen(val route: String) {
@@ -29,30 +31,25 @@ fun AppNavGraph(
     bluetoothAdapter: BluetoothAdapter
 ) {
 
-    // Create RoleViewModel with factory
-    val roleViewModel: RoleViewModel = viewModel(
-        factory = RoleViewModelFactory(
-            repository = repository,
-            bluetoothAdapter = bluetoothAdapter
-        )
-    )
-
     NavHost(navController = navController, startDestination = Screen.Setup.route) {
         composable(Screen.Setup.route) {
             SetupScreen(
                 viewModel = setupViewModel,
                 onReady = {
                     navController.navigate(Screen.RoleSelection.route){
-                        popUpTo(Screen.Setup.route) {
-                            inclusive = true // remove from backstack
-                            }
+                        popUpTo(Screen.Setup.route) { inclusive = true }
                     }
                 }
             )
         }
 
         composable(Screen.RoleSelection.route) {
-
+            val roleViewModel: RoleViewModel = viewModel(
+                factory = RoleViewModelFactory(
+                    repository = repository,
+                    bluetoothAdapter = bluetoothAdapter
+                )
+            )
             RoleSelectionScreen(
                 navController = navController,
                 roleViewModel = roleViewModel
@@ -60,7 +57,11 @@ fun AppNavGraph(
         }
 
         composable(Screen.Playground.route) {
-            PlaygroundScreen(roleViewModel)
+            // Playground VM créé ici, réutilise le même repo
+            val playgroundViewModel: PlaygroundViewModel = viewModel(
+                factory = PlaygroundViewModelFactory(repository)
+            )
+            PlaygroundScreen(playgroundViewModel)
         }
     }
 }
