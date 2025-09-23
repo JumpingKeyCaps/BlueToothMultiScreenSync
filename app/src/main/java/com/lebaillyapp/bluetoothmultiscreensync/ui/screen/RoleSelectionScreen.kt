@@ -139,8 +139,8 @@ fun RoleSelectionScreen(
 
         // Mock navigation
         if (selectedRole != null) {
-            Button(onClick = { navController.navigate("canvas") }) {
-                Text("Go to Canvas")
+            Button(onClick = { navController.navigate("playground") }) {
+                Text("Go to playground")
             }
         }
     }
