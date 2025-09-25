@@ -7,28 +7,32 @@ import android.bluetooth.BluetoothSocket
 import androidx.annotation.RequiresPermission
 import com.lebaillyapp.bluetoothmultiscreensync.domain.model.ServerState
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.*
 import java.io.IOException
 import java.util.*
 
 /**
- * ## BluetoothServer
+ * ## BluetoothServer (multi-device, robust)
  *
- * A server class for accepting incoming Bluetooth Classic connections (SPP/RFCOMM).
- * This class listens for client connections and exposes both the connection events
- * and the server's state via [SharedFlow] and [StateFlow].
+ * Manages multiple incoming Bluetooth Classic connections (SPP/RFCOMM) safely with coroutines.
  *
  * ### Features:
- * - Listens for incoming connections using a [BluetoothServerSocket].
- * - Emits new connections as [BluetoothConnection] objects.
- * - Exposes the current server state via [StateFlow] of [ServerState].
- * - Handles proper cleanup and shutdown of the server socket.
+ * - Listens for multiple clients using a [BluetoothServerSocket].
+ * - Creates one [BluetoothConnection] per client and stores them in memory.
+ * - Exposes each accepted connection via [incomingConnections].
+ * - Exposes all incoming messages via [incomingMessages].
+ * - Broadcasts messages received from one client to all other connected clients.
+ * - Provides server lifecycle state via [state].
+ * - Handles cleanup properly when stopped or when clients disconnect.
+ *
+ * ### Lifecycle:
+ * 1. Call [start] to begin listening for incoming connections.
+ * 2. Observe [incomingConnections] to get new clients.
+ * 3. Observe [incomingMessages] for messages from clients.
+ * 4. Use [stop] to close the server and all connections.
  *
  * @property adapter The [BluetoothAdapter] used to manage Bluetooth operations.
- * @property serviceName A human-readable name for the Bluetooth service (default `"BTMultiScreenSync"`).
+ * @property serviceName The human-readable name for the Bluetooth service (default `"BTMultiScreenSync"`).
  * @property serviceUUID The UUID representing the service exposed by the server.
  */
 class BluetoothServer(
@@ -36,38 +40,36 @@ class BluetoothServer(
     private val serviceName: String = "BTMultiScreenSync",
     private val serviceUUID: UUID
 ) {
-
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private var serverSocket: BluetoothServerSocket? = null
     private var listeningJob: Job? = null
 
+    private val connections = mutableListOf<BluetoothConnection>()
+
     private val _incomingConnections = MutableSharedFlow<BluetoothConnection>(extraBufferCapacity = 16)
-    /**
-     * A [SharedFlow] emitting new [BluetoothConnection] objects when a client connects.
-     * Use this to handle incoming messages or manage active connections.
-     */
-    val incomingConnections: SharedFlow<BluetoothConnection> = _incomingConnections
+    /** Emits each new [BluetoothConnection] when a client connects. */
+    val incomingConnections: SharedFlow<BluetoothConnection> = _incomingConnections.asSharedFlow()
+
+    private val _incomingMessages = MutableSharedFlow<String>(extraBufferCapacity = 32)
+    /** Emits all incoming messages from any connected client. */
+    val incomingMessages: SharedFlow<String> = _incomingMessages.asSharedFlow()
 
     private val _state = MutableStateFlow<ServerState>(ServerState.Stopped)
-    /**
-     * A [StateFlow] representing the current state of the server.
-     * - [ServerState.Stopped] → server is not running
-     * - [ServerState.Listening] → server is ready and listening for connections
-     * - [ServerState.Error] → an error occurred while listening
-     */
-    val state: StateFlow<ServerState> = _state
+    /** Current state of the server (Stopped, Listening, Connected, Error). */
+    val state: StateFlow<ServerState> = _state.asStateFlow()
 
     /**
-     * Starts listening for incoming Bluetooth connections.
+     * ## Starts listening for incoming Bluetooth connections.
      *
-     * Requires [Manifest.permission.BLUETOOTH_CONNECT] at runtime.
+     * Requires [Manifest.permission.BLUETOOTH_CONNECT].
+     * Idempotent: calling while already listening has no effect.
      *
-     * Launches a coroutine on [Dispatchers.IO] that continuously calls [BluetoothServerSocket.accept]
-     * to accept new connections. Each accepted connection is wrapped in a [BluetoothConnection]
-     * and emitted through [incomingConnections].
-     *
-     * Idempotent: calling this method while already listening has no effect.
+     * For each accepted client:
+     * - Wraps it in a [BluetoothConnection].
+     * - Adds it to [connections].
+     * - Emits the connection to [incomingConnections].
+     * - Listens for messages and broadcasts them to other clients.
      */
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     fun start() {
@@ -83,11 +85,20 @@ class BluetoothServer(
                         val socket: BluetoothSocket = serverSocket?.accept() ?: break
                         val connection = BluetoothConnection(socket, scope)
 
-                        // Mettre à jour l'état serveur
+                        addConnection(connection)
                         _state.emit(ServerState.Connected(socket.remoteDevice))
-
-                        // Émettre la connexion dans le SharedFlow
                         _incomingConnections.emit(connection)
+
+                        launch {
+                            try {
+                                connection.incomingMessages.collect { message ->
+                                    _incomingMessages.emit(message)
+                                    broadcastMessage(message, exclude = connection)
+                                }
+                            } catch (_: Exception) {
+                                removeConnection(connection)
+                            }
+                        }
                     } catch (e: IOException) {
                         _state.emit(ServerState.Error(e))
                         break
@@ -100,18 +111,53 @@ class BluetoothServer(
     }
 
     /**
-     * Stops listening for connections and shuts down the server.
-     *
-     * Cancels the listening coroutine, closes the server socket, and updates the
-     * [state] to [ServerState.Stopped].
+     * ## Broadcasts a message to all connected clients
+     * optionally excluding the sender.
+     */
+    private  fun broadcastMessage(message: String, exclude: BluetoothConnection? = null) {
+        val snapshot = getConnectionsSnapshot()
+        snapshot.forEach { conn ->
+            if (conn != exclude) {
+                try {
+                    conn.sendMessage(message)
+                } catch (_: IOException) {
+                    removeConnection(conn)
+                }
+            }
+        }
+    }
+
+    private fun addConnection(connection: BluetoothConnection) {
+        synchronized(connections) { connections.add(connection) }
+    }
+
+    private fun removeConnection(connection: BluetoothConnection) {
+        synchronized(connections) { connections.remove(connection) }
+        connection.close()
+        if (connections.isEmpty()) _state.tryEmit(ServerState.Listening)
+    }
+
+    /**
+     * ## Stops the server and disconnects all clients.
+     * Cancels listening job, closes server socket, clears connections.
      */
     fun stop() {
         listeningJob?.cancel()
         listeningJob = null
-        try {
-            serverSocket?.close()
-        } catch (_: IOException) {}
+        try { serverSocket?.close() } catch (_: IOException) {}
         serverSocket = null
+
+        synchronized(connections) {
+            connections.forEach { it.close() }
+            connections.clear()
+        }
+
         _state.tryEmit(ServerState.Stopped)
     }
+
+    /**
+     * ## Returns a snapshot of currently active connections.
+     */
+    fun getConnectionsSnapshot(): List<BluetoothConnection> =
+        synchronized(connections) { connections.toList() }
 }
