@@ -96,6 +96,18 @@ While extending this to dynamic image streaming or other large media would neces
 - Master sends updates in `{xVU, yVU, wVU, hVU}` format.
 - Slaves crop & render in real-time.
 
+
+### 🔹 Master-Controlled Virtual Viewports
+
+The Master device fully controls the virtual coordinate system for all Slaves.  
+Each Slave receives an **origin offset** `(offsetX, offsetY)` and a **logical orientation** defined by the Master.
+This allows the Slave to behave as if its screen were rotated or positioned differently, even if the physical device is locked in portrait mode.  
+
+All object rendering and interaction calculations on the Slave are performed relative to this Master-defined origin.  
+- The Master can place Slaves anywhere on the virtual canvas (e.g., one below the Master, one to the right).  
+- Slaves map virtual coordinates to their local screen using their assigned viewport.  
+- This strategy eliminates the need to handle physical rotation or complex recomposition on Slaves while keeping the shared canvas perfectly aligned across devices.
+
 ---
 
 ## Data Flow Overview
@@ -211,8 +223,6 @@ If connection limits are reached, the master device will prioritize the most rec
  - Bezels: Large physical bezels break the visual illusion unless compensated.
 
  - Uniform scale: must be applied equally to X and Y to prevent distortion.
-
- - Portrait-only: first version fixed to portrait mode for simpler math.
 
  - Partial rendering: crop logic must handle cases where the image is 100% outside the viewport.
 
