@@ -8,28 +8,36 @@ import androidx.annotation.RequiresPermission
 import com.lebaillyapp.bluetoothmultiscreensync.data.bluetooth.*
 import com.lebaillyapp.bluetoothmultiscreensync.domain.model.ConnectionState
 import com.lebaillyapp.bluetoothmultiscreensync.domain.model.ServerState
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.launch
+import java.io.IOException
 import java.util.*
 
 /**
  * ## BluetoothRepository
  *
- * Centralizes all Bluetooth Classic operations: scanning, client connections, and server.
- * Exposes unified [StateFlow] and [SharedFlow] for UI/ViewModel consumption.
+ * High-level repository exposing Bluetooth Classic features (scan, server, client) to the app.
  *
- * ### Features:
- * - Scan for nearby devices using [BluetoothScanner].
- * - Act as a server to accept incoming connections via [BluetoothServer].
- * - Connect to a remote device as a client via [BluetoothClient].
- * - Provides unified state flows for server, client, and scan results.
+ * ### Responsibilities:
+ * - Scanning for nearby devices ([startScan], [stopScan]).
+ * - Running a Bluetooth server ([startServer], [stopServer]).
+ * - Connecting as a client to a remote server ([connectToDevice], [disconnect]).
+ * - Sending messages to connected peers ([sendMessage]).
+ * - Aggregating connection states and incoming messages from both server and client.
  *
+ * ### Exposed Flows:
+ * - [scanResults]: list of discovered devices during scan.
+ * - [serverState]: current server state.
+ * - [incomingConnections]: connections accepted by the server.
+ * - [incomingMessages]: all messages received from any client or server connection.
+ * - [clientState]: current client connection state.
+ * - [currentConnection]: active client connection (if any).
  *
- * @property context Safe [Context] reference (application context recommended).
- * @property adapter [BluetoothAdapter] to perform classic Bluetooth operations.
- * @property serviceUUID The RFCOMM service UUID used for client/server connections.
+ * All operations are coroutine-safe and run on [Dispatchers.IO].
+ *
+ * @property context Application [Context], needed for Bluetooth scanning.
+ * @property adapter The [BluetoothAdapter] used for managing Bluetooth operations.
+ * @property serviceUUID The UUID used for server-client connections (SPP/RFCOMM).
  */
 class BluetoothRepository(
     private val context: Context,
@@ -37,30 +45,30 @@ class BluetoothRepository(
     private val serviceUUID: UUID
 ) {
 
-    private val scope = CoroutineScope(Dispatchers.IO)
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     // --- Scanner ---
     private var scanner: BluetoothScanner? = null
     private val _scanResults = MutableStateFlow<List<BluetoothDevice>>(emptyList())
-
-    /** StateFlow representing the current list of discovered devices. */
     val scanResults: StateFlow<List<BluetoothDevice>> = _scanResults.asStateFlow()
 
-    /** Starts Bluetooth device discovery. Updates [scanResults] in real-time. */
+    /**
+     * ### Starts scanning for nearby Bluetooth devices.
+     */
     @RequiresPermission(Manifest.permission.BLUETOOTH_SCAN)
     fun startScan() {
         if (scanner == null) {
             scanner = BluetoothScanner(context, adapter)
             scope.launch {
-                scanner!!.devices.collect { devices ->
-                    _scanResults.value = devices
-                }
+                scanner!!.devices.collect { _scanResults.value = it }
             }
         }
         scanner!!.startScan()
     }
 
-    /** Stops ongoing Bluetooth scanning. */
+    /**
+     * ### Stops scanning for nearby Bluetooth devices.
+     */
     @RequiresPermission(Manifest.permission.BLUETOOTH_SCAN)
     fun stopScan() {
         scanner?.stopScan()
@@ -69,34 +77,34 @@ class BluetoothRepository(
     // --- Server ---
     private var server: BluetoothServer? = null
     private val _serverState = MutableStateFlow<ServerState>(ServerState.Stopped)
-
-    /** StateFlow representing the current server state: [Stopped], [Listening], or [Error]. */
     val serverState: StateFlow<ServerState> = _serverState
 
     private val _incomingConnections = MutableSharedFlow<BluetoothConnection>(extraBufferCapacity = 16)
-
-    /** SharedFlow of incoming connections accepted by the server. */
     val incomingConnections: SharedFlow<BluetoothConnection> = _incomingConnections
 
-    /** Starts the Bluetooth server to listen for incoming connections. */
+    private val _incomingMessages = MutableSharedFlow<String>(extraBufferCapacity = 32)
+    val incomingMessages: SharedFlow<String> = _incomingMessages
+
+    /**
+     * ### Starts a Bluetooth server to accept incoming client connections.
+     */
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     fun startServer() {
         if (server != null) return
 
         server = BluetoothServer(adapter, serviceUUID = serviceUUID)
-        _serverState.value = ServerState.Listening
 
-        scope.launch {
-            server!!.state.collect { state -> _serverState.value = state }
-        }
-        scope.launch {
-            server!!.incomingConnections.collect { conn -> _incomingConnections.emit(conn) }
-        }
+        // Collect server flows safely
+        scope.launch { server!!.state.collect { _serverState.value = it } }
+        scope.launch { server!!.incomingConnections.collect { _incomingConnections.emit(it) } }
+        scope.launch { server!!.incomingMessages.collect { _incomingMessages.emit(it) } }
 
         server!!.start()
     }
 
-    /** Stops the Bluetooth server and clears state. */
+    /**
+     * ### Stops the Bluetooth server and clears state.
+     */
     fun stopServer() {
         server?.stop()
         server = null
@@ -106,35 +114,47 @@ class BluetoothRepository(
     // --- Client ---
     private var client: BluetoothClient? = null
     private val _clientState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
-
-    /** StateFlow representing the current client connection state. */
     val clientState: StateFlow<ConnectionState> = _clientState
 
     private var _currentConnection: BluetoothConnection? = null
-
-    /** The current active client connection, if any. */
     val currentConnection: BluetoothConnection? get() = _currentConnection
 
     /**
-     * Connects to the specified [device] as a Bluetooth client.
-     * Cancels any previous connection.
-     *
-     * @param device The target Bluetooth device to connect to.
+     * ### Connects to a remote server using a [BluetoothDevice].
      */
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     fun connectToDevice(device: BluetoothDevice) {
-        disconnect() // disconnect if already connected
+        disconnect() // disconnect previous
 
         client = BluetoothClient(adapter, device, serviceUUID)
-        scope.launch {
-            client!!.state.collect { state -> _clientState.value = state }
-        }
+
+        // Collect client state
+        scope.launch { client!!.state.collect { _clientState.value = it } }
+        // Collect client messages
+        scope.launch { client!!.incomingMessages.collect { _incomingMessages.emit(it) } }
+        // Update current active connection
+        scope.launch { client!!.activeConnection.collect { conn -> _currentConnection = conn } }
 
         client!!.connect()
-        _currentConnection = client!!.connection
     }
 
-    /** Disconnects the current client connection and resets state. */
+    /**
+     * ### Sends a message to all connected server clients
+     * and to the active client connection if present.
+     */
+    fun sendMessage(message: String) {
+        scope.launch {
+            server?.getConnectionsSnapshot()?.forEach { conn ->
+                try { conn.sendMessage(message) } catch (_: IOException) {}
+            }
+
+            try { client?.sendMessage(message) } catch (_: IOException) {}
+        }
+    }
+
+    /**
+     * ### Disconnects the client and clears state.
+     */
     fun disconnect() {
         client?.disconnect()
         client = null
