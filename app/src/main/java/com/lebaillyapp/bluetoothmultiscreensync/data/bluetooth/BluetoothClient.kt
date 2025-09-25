@@ -7,69 +7,66 @@ import android.bluetooth.BluetoothSocket
 import androidx.annotation.RequiresPermission
 import com.lebaillyapp.bluetoothmultiscreensync.domain.model.ConnectionState
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.*
 import java.io.IOException
 import java.util.*
 
 /**
- * ## BluetoothClient
+ * ## BluetoothClient (robust)
  *
- * A client class for connecting to a Bluetooth Classic server (SPP/RFCOMM).
- * This class handles establishing a connection to a remote Bluetooth device,
- * maintaining connection state, and exposing the underlying [BluetoothConnection]
- * for sending and receiving messages.
+ * Connects to a Bluetooth Classic server (SPP/RFCOMM) and exposes connection state and messages.
  *
  * ### Features:
- * - Connects to a Bluetooth server using a provided device and UUID.
- * - Exposes the connection state via a [StateFlow] of [ConnectionState].
- * - Provides access to the [BluetoothConnection] for message exchange.
- * - Handles proper cleanup and disconnection.
+ * - Connects to a remote server using a [BluetoothDevice] and a UUID.
+ * - Exposes connection state via [state].
+ * - Exposes a [SharedFlow] of incoming messages via [incomingMessages].
+ * - Provides the current active connection via [activeConnection].
+ * - Provides [sendMessage] to send data to the server.
+ * - Cleans up properly on disconnect or error.
+ *
+ * ### Lifecycle:
+ * 1. Call [connect] to establish a connection.
+ * 2. Observe [state] to track connection progress and errors.
+ * 3. Observe [incomingMessages] to receive messages from the server.
+ * 4. Call [sendMessage] to send a message to the server.
+ * 5. Call [disconnect] to safely close the connection.
  *
  * @property adapter The [BluetoothAdapter] used to manage Bluetooth operations.
  * @property device The remote [BluetoothDevice] to connect to.
- * @property serviceUUID The UUID representing the service on the server side.
+ * @property serviceUUID The UUID of the remote service.
  */
 class BluetoothClient(
     private val adapter: BluetoothAdapter,
     private val device: BluetoothDevice,
     private val serviceUUID: UUID
 ) {
-
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private var socket: BluetoothSocket? = null
     private var connectionJob: Job? = null
 
     private val _state = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
-    /**
-     * A [StateFlow] representing the current connection state.
-     * - [ConnectionState.Disconnected] → not connected
-     * - [ConnectionState.Connecting] → attempting to connect
-     * - [ConnectionState.Connected] → successfully connected
-     * - [ConnectionState.Error] → connection failed or lost
-     */
-    val state: StateFlow<ConnectionState> = _state
+    /** Current connection state (Disconnected, Connecting, Connected, Error) */
+    val state: StateFlow<ConnectionState> = _state.asStateFlow()
 
-    private var _connection: BluetoothConnection? = null
-    /**
-     * The active [BluetoothConnection] instance if connected; null otherwise.
-     * Use this object to send and receive messages.
-     */
-    val connection: BluetoothConnection?
-        get() = _connection
+    private val _activeConnection = MutableStateFlow<BluetoothConnection?>(null)
+    /** Current active connection, null if disconnected */
+    val activeConnection: StateFlow<BluetoothConnection?> = _activeConnection.asStateFlow()
+
+    private var connection: BluetoothConnection? = null
+
+    private val _incomingMessages = MutableSharedFlow<String>(extraBufferCapacity = 32)
+    /** Emits incoming messages from the server */
+    val incomingMessages: SharedFlow<String> = _incomingMessages.asSharedFlow()
 
     /**
-     * Starts an attempt to connect to the remote Bluetooth server.
+     * ## Initiates a connection to the remote server.
      *
-     * Requires [Manifest.permission.BLUETOOTH_CONNECT] at runtime.
+     * Requires [Manifest.permission.BLUETOOTH_CONNECT].
+     * Idempotent: calling while already connecting has no effect.
      *
-     * Launches a coroutine on [Dispatchers.IO] to handle the connection asynchronously.
-     * If the connection succeeds, updates [state] to [ConnectionState.Connected]
-     * and initializes [connection]. If it fails, updates [state] to [ConnectionState.Error].
-     *
-     * This method is idempotent: calling it while a connection attempt is in progress
-     * has no effect.
+     * Updates [state] to reflect progress.
+     * On success, sets [activeConnection] and starts collecting messages.
      */
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     fun connect() {
@@ -80,17 +77,25 @@ class BluetoothClient(
         connectionJob = scope.launch {
             try {
                 socket = device.createRfcommSocketToServiceRecord(serviceUUID)
-                try {
-                    adapter.cancelDiscovery() // Stop discovery before connecting
-                } catch (e: SecurityException) {
-                    // Ignore if permission is not granted
-                }
+                try { adapter.cancelDiscovery() } catch (_: SecurityException) {}
 
                 socket?.connect()
 
                 val btConnection = BluetoothConnection(socket!!, scope)
-                _connection = btConnection
+                connection = btConnection
+                _activeConnection.value = btConnection
                 _state.value = ConnectionState.Connected
+
+                launch {
+                    try {
+                        btConnection.incomingMessages.collect { msg ->
+                            _incomingMessages.emit(msg)
+                        }
+                    } catch (_: Exception) {
+                        disconnect()
+                        _state.value = ConnectionState.Error(IOException("Connection lost"))
+                    }
+                }
             } catch (e: IOException) {
                 _state.value = ConnectionState.Error(e)
                 try { socket?.close() } catch (_: IOException) {}
@@ -99,13 +104,25 @@ class BluetoothClient(
     }
 
     /**
-     * Disconnects the client cleanly.
+     * ## Sends a [message] to the server.
      *
-     * - Cancels any ongoing connection attempt.
-     * - Closes the Bluetooth socket.
-     * - Nullifies the [connection] reference.
-     * - Updates [state] to [ConnectionState.Disconnected].
-     * - Cancels the internal coroutine scope to release resources.
+     * Throws IOException if the connection fails.
+     * If sending fails, the client disconnects and updates [state] to [ConnectionState.Error].
+     *
+     * @param message The string message to send.
+     */
+    fun sendMessage(message: String) {
+        try {
+            connection?.sendMessage(message)
+        } catch (e: IOException) {
+            disconnect()
+            _state.value = ConnectionState.Error(e)
+        }
+    }
+
+    /**
+     * ## Disconnects from the server
+     * closes all resources, and resets [state] and [activeConnection].
      */
     fun disconnect() {
         connectionJob?.cancel()
@@ -113,8 +130,11 @@ class BluetoothClient(
 
         try { socket?.close() } catch (_: IOException) {}
         socket = null
-        _connection = null
+
+        connection?.close()
+        connection = null
+        _activeConnection.value = null
+
         _state.value = ConnectionState.Disconnected
-        scope.cancel()
     }
 }
