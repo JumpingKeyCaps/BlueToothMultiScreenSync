@@ -1,6 +1,6 @@
 
 <p align="center">
-  <img src="screenshots/icoBTMS.png" alt="Logo" width="433" height="433">
+  <img src="screenshots/icoBTMS.png" alt="Logo" width="333" height="333">
 </p>
 
 
