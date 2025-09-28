@@ -1,3 +1,12 @@
+
+<p align="center">
+  <img src="screenshots/icoBTMS.png" alt="Logo" width="433" height="433">
+</p>
+
+
+---
+
+
 # BlueToothMultiScreenSync
 
 [![Android](https://img.shields.io/badge/Platform-Android-green)](https://developer.android.com/) 
