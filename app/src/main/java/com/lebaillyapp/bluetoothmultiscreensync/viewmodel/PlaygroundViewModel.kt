@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import com.lebaillyapp.bluetoothmultiscreensync.data.repository.BluetoothRepository
 import com.lebaillyapp.bluetoothmultiscreensync.domain.model.ConnectionState
 import com.lebaillyapp.bluetoothmultiscreensync.domain.model.ServerState
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -27,6 +28,15 @@ class PlaygroundViewModel(
     /** Current client state (Slave) */
     val clientState: StateFlow<ConnectionState> = repository.clientState
 
-    /** SharedFlow of incoming connections from the server */
-    val incomingConnections = repository.incomingConnections
+    /** SharedFlow of all incoming messages from any connected device */
+    val incomingMessages: SharedFlow<String> = repository.incomingMessages
+
+    /**
+     * Sends a message to connected devices
+     * - If Server: sends to all connected clients
+     * - If Client: sends to the server + reBroadcasting to other clients by the server (excludes sender)
+     */
+    fun sendMessage(message: String) {
+        repository.sendMessage(message)
+    }
 }
