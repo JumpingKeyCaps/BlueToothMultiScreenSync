@@ -53,23 +53,26 @@ fun PlaygroundScreen(
 
         Divider()
 
-        // Affichage état serveur
-        when (serverState) {
-            is ServerState.Listening -> Text("Server is listening...")
-            is ServerState.Connected -> {
-                val device = (serverState as ServerState.Connected).device
-                Text("Connected to: ${device.name ?: "Unknown"} (${device.address})")
+        // N'afficher que l'état pertinent
+        if (serverState is ServerState.Connected || serverState is ServerState.Listening) {
+            // Mode serveur actif
+            when (serverState) {
+                is ServerState.Listening -> Text("Server is listening...")
+                is ServerState.Connected -> {
+                    val device = (serverState as ServerState.Connected).device
+                    Text("Server connected to: ${device.name ?: "Unknown"} (${device.address})")
+                }
+                is ServerState.Error -> Text("Server error: ${(serverState as ServerState.Error).throwable.message}")
+                else -> {}
             }
-            is ServerState.Stopped -> Text("Server stopped")
-            is ServerState.Error -> Text("Server error: ${(serverState as ServerState.Error).throwable.message}")
-        }
-
-        // Affichage état client
-        when (clientState) {
-            is ConnectionState.Connecting -> Text("Connecting...")
-            is ConnectionState.Connected -> Text("Connected!")
-            is ConnectionState.Disconnected -> Text("Disconnected")
-            is ConnectionState.Error -> Text("Error: ${(clientState as ConnectionState.Error).throwable.message}")
+        } else if (clientState !is ConnectionState.Disconnected) {
+            // Mode client actif
+            when (clientState) {
+                is ConnectionState.Connecting -> Text("Connecting...")
+                is ConnectionState.Connected -> Text("Client connected!")
+                is ConnectionState.Error -> Text("Error: ${(clientState as ConnectionState.Error).throwable.message}")
+                else -> {}
+            }
         }
     }
 }
