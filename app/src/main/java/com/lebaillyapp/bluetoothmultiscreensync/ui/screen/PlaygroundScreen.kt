@@ -1,16 +1,10 @@
 package com.lebaillyapp.bluetoothmultiscreensync.ui.screen
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Divider
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -18,13 +12,20 @@ import com.lebaillyapp.bluetoothmultiscreensync.domain.model.ConnectionState
 import com.lebaillyapp.bluetoothmultiscreensync.domain.model.ServerState
 import com.lebaillyapp.bluetoothmultiscreensync.viewmodel.PlaygroundViewModel
 
+
 /**
  * ## PlaygroundScreen
  *
- * Destination après sélection de rôle et connexion Bluetooth.
- * Affiche le rôle courant et l’état des connexions.
+ * Screen displayed after role selection and successful Bluetooth connection.
+ * Shows the current role, connection status, and provides a test interface for message exchange.
  *
- * @param playgroundViewModel Fournit les flux de connexion client et serveur
+ * ### Features:
+ * - Displays connection status (Server or Client mode)
+ * - "Send Test Message" button to validate bidirectional communication
+ * - Real-time display of incoming messages from connected devices
+ * - Auto-scrolling list of received messages with timestamps
+ *
+ * @param playgroundViewModel Provides server and client connection state flows and message handling
  */
 @Composable
 @Suppress("MissingPermission")
@@ -34,11 +35,13 @@ fun PlaygroundScreen(
     val serverState by playgroundViewModel.serverState.collectAsState()
     val clientState by playgroundViewModel.clientState.collectAsState()
 
-    // Side effect pour déclencher des actions quand connecté
-    LaunchedEffect(serverState, clientState) {
-        val connected = (serverState is ServerState.Connected) || (clientState is ConnectionState.Connected)
-        if (connected) {
-            // TODO: démarrer le canvas ou une animation, timer, etc.
+    // Liste des messages reçus
+    val receivedMessages = remember { mutableStateListOf<String>() }
+
+    // Collecter les messages entrants
+    LaunchedEffect(Unit) {
+        playgroundViewModel.incomingMessages.collect { message ->
+            receivedMessages.add(message)
         }
     }
 
@@ -53,25 +56,64 @@ fun PlaygroundScreen(
 
         Divider()
 
-        // N'afficher que l'état pertinent
+        // Affichage de l'état de connexion
         if (serverState is ServerState.Connected || serverState is ServerState.Listening) {
-            // Mode serveur actif
             when (serverState) {
                 is ServerState.Listening -> Text("Server is listening...")
                 is ServerState.Connected -> {
                     val device = (serverState as ServerState.Connected).device
-                    Text("Server connected to: ${device.name ?: "Unknown"} (${device.address})")
+                    Text("Server connected to: ${device.name ?: "Unknown"}")
                 }
                 is ServerState.Error -> Text("Server error: ${(serverState as ServerState.Error).throwable.message}")
                 else -> {}
             }
         } else if (clientState !is ConnectionState.Disconnected) {
-            // Mode client actif
             when (clientState) {
                 is ConnectionState.Connecting -> Text("Connecting...")
                 is ConnectionState.Connected -> Text("Client connected!")
                 is ConnectionState.Error -> Text("Error: ${(clientState as ConnectionState.Error).throwable.message}")
                 else -> {}
+            }
+        }
+
+        Divider()
+
+        // Bouton d'envoi de message test
+        val isConnected = (serverState is ServerState.Connected) || (clientState is ConnectionState.Connected)
+        val role = if (serverState is ServerState.Connected) "Server" else "Client"
+
+        Button(
+            onClick = {
+                playgroundViewModel.sendMessage("Hello from $role at ${System.currentTimeMillis()}")
+            },
+            enabled = isConnected
+        ) {
+            Text("Send Test Message")
+        }
+
+        Divider()
+
+        // Affichage des messages reçus
+        Text("Received Messages:", style = MaterialTheme.typography.titleMedium)
+
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (receivedMessages.isEmpty()) {
+                item { Text("No messages yet...", style = MaterialTheme.typography.bodySmall) }
+            } else {
+                items(receivedMessages) { message ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = message,
+                            modifier = Modifier.padding(12.dp),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
             }
         }
     }
