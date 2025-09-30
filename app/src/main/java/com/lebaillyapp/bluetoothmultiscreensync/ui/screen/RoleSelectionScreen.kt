@@ -9,10 +9,12 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.lebaillyapp.bluetoothmultiscreensync.domain.model.ConnectionState
@@ -42,6 +44,7 @@ import com.lebaillyapp.bluetoothmultiscreensync.viewmodel.RoleViewModel
  * @param navController Navigation controller for screen transitions.
  * @param roleViewModel ViewModel exposing role, server state, scanned devices, and client state.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 @Suppress("MissingPermission")
 fun RoleSelectionScreen(
@@ -57,12 +60,9 @@ fun RoleSelectionScreen(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode != Activity.RESULT_CANCELED) {
-            // User accepted → start server role
             roleViewModel.selectRole(RoleViewModel.Role.Server)
         }
     }
-
-
 
     LaunchedEffect(selectedRole, serverState, clientState) {
         val connected = when (selectedRole) {
@@ -72,88 +72,151 @@ fun RoleSelectionScreen(
         }
         if (connected) {
             navController.navigate("playground") {
-                // Enlève RoleSelection de la backstack
                 popUpTo("role_selection") { inclusive = true }
             }
         }
     }
 
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text("Select your role", style = MaterialTheme.typography.titleMedium)
-
-        // Role selection buttons
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            Button(
-                onClick = {
-                    val intent = Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE).apply {
-                        putExtra(BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, 120)
-                    }
-                    discoverabilityLauncher.launch(intent)
-                },
-                enabled = selectedRole != RoleViewModel.Role.Server
-            ) { Text("Server") }
-
-            Button(
-                onClick = { roleViewModel.selectRole(RoleViewModel.Role.Client) },
-                enabled = selectedRole != RoleViewModel.Role.Client
-            ) { Text("Client") }
+    // Build subtitle text = Role + State
+    val subtitle = when (selectedRole) {
+        RoleViewModel.Role.Server -> {
+            "Server - " + when (serverState) {
+                is ServerState.Listening -> "Listening..."
+                is ServerState.Connected -> "Connected"
+                is ServerState.Error -> "Error"
+                is ServerState.Stopped -> "Stopped"
+            }
         }
+        RoleViewModel.Role.Client -> {
+            "Client - " + when (clientState) {
+                is ConnectionState.Connecting -> "Connecting..."
+                is ConnectionState.Connected -> "Connected"
+                is ConnectionState.Disconnected -> "Disconnected"
+                is ConnectionState.Error -> "Error"
+            }
+        }
+        else -> "No role selected"
+    }
 
-        // Server state
-        if (selectedRole == RoleViewModel.Role.Server) {
-            when (serverState) {
-                is ServerState.Listening -> Text("Server is listening for incoming connections...")
-                is ServerState.Error -> Text("Error: ${(serverState as ServerState.Error).throwable.message}")
-                is ServerState.Stopped -> Text("Server is stopped!")
-                is ServerState.Connected -> {
-                    val device = (serverState as ServerState.Connected).device
-                    Text("Connected to device: ${device.name ?: "Unknown"} (${device.address})")
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Column {
+                        Text("Bluetooth mode", style = MaterialTheme.typography.titleLarge)
+                        Text(
+                            subtitle,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            )
+        },
+        bottomBar = {
+            Box(
+                modifier = Modifier
+                    .height(150.dp)
+                    .fillMaxWidth()
+                    .padding(start = 26.dp, end = 26.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                val buttonText = when (selectedRole) {
+                    RoleViewModel.Role.Server -> "Switch to Client"
+                    RoleViewModel.Role.Client -> "Switch to Server"
+                    else -> "Choose Role"
+                }
+
+                ElevatedButton(
+                    modifier = Modifier.fillMaxWidth()
+                        .height(54.dp),
+                    onClick = {
+                        if (selectedRole == RoleViewModel.Role.Client) {
+                            val intent = Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE).apply {
+                                putExtra(BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, 120)
+                            }
+                            discoverabilityLauncher.launch(intent)
+                        } else {
+                            roleViewModel.selectRole(RoleViewModel.Role.Client)
+                        }
+                    }
+                ) {
+                    Text(buttonText)
                 }
             }
         }
-
-        // Client devices list & state
-        if (selectedRole == RoleViewModel.Role.Client) {
+    ) { paddingValues ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+        ) {
             LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                if (scannedDevices.isEmpty()) {
-                    item { Text("No devices found yet...") }
-                } else {
-                    items(scannedDevices, key = { it.address }) { device ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { roleViewModel.connectToDevice(device) }
-                                .padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                // Server connected details
+                if (selectedRole == RoleViewModel.Role.Server && serverState is ServerState.Connected) {
+                    item {
+                        val device = (serverState as ServerState.Connected).device
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
                         ) {
-                            Text(device.name ?: "Unknown")
-                            Text(device.address)
+                            Column(Modifier.padding(16.dp)) {
+                                Text("Connected to: ${device.name ?: "Unknown"}")
+                                Text(device.address, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+
+                // Client devices
+                if (selectedRole == RoleViewModel.Role.Client) {
+                    if (scannedDevices.isEmpty()) {
+                        item { Text("No devices found yet...") }
+                    } else {
+                        items(scannedDevices, key = { it.address }) { device ->
+                            Card(
+                                onClick = { roleViewModel.connectToDevice(device) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 26.dp, end = 26.dp),
+                                shape = RoundedCornerShape(35.dp),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = 36.dp, end = 36.dp, top = 12.dp, bottom = 12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text(device.name ?: "Unknown")
+                                        Text(device.address, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
-            when (clientState) {
-                is ConnectionState.Connecting -> Text("Connecting to device...")
-                is ConnectionState.Connected -> Text("Connected!")
-                is ConnectionState.Disconnected -> Text("Disconnected")
-                is ConnectionState.Error -> Text("Error: ${(clientState as ConnectionState.Error).throwable.message}")
+            // Infinite progress indicator when Server is listening
+            if (selectedRole == RoleViewModel.Role.Server && serverState is ServerState.Listening) {
+                CircularProgressIndicator(
+                    modifier = Modifier.align(Alignment.Center)
+                )
             }
         }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-
     }
 }
+
+
+
+
