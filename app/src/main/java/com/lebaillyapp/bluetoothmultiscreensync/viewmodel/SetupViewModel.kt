@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Application
 import android.bluetooth.BluetoothAdapter
 import android.location.LocationManager
+import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.lebaillyapp.bluetoothmultiscreensync.data.repository.BluetoothRepository
@@ -44,11 +45,19 @@ class SetupViewModel(
     }
 
     private fun checkPermissions(): Boolean {
-        val perms = arrayOf(
-            Manifest.permission.BLUETOOTH_CONNECT,
-            Manifest.permission.BLUETOOTH_SCAN,
-            Manifest.permission.ACCESS_FINE_LOCATION
-        )
+        val perms = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            arrayOf(
+                Manifest.permission.BLUETOOTH_CONNECT,
+                Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            )
+        } else {
+            arrayOf(
+                Manifest.permission.BLUETOOTH,
+                Manifest.permission.BLUETOOTH_ADMIN,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            )
+        }
         return perms.all { perm ->
             context.checkSelfPermission(perm) == android.content.pm.PackageManager.PERMISSION_GRANTED
         }
@@ -56,6 +65,10 @@ class SetupViewModel(
 
     fun updatePermissions(granted: Boolean) {
         _permissionsGranted.value = granted
+        if (granted) {
+            // Double check
+            _permissionsGranted.value = checkPermissions()
+        }
     }
 
     fun updateBluetoothState(enabled: Boolean) {
