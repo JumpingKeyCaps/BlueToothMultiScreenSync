@@ -3,6 +3,7 @@ package com.lebaillyapp.bluetoothmultiscreensync.ui.screen
 import android.Manifest
 import android.bluetooth.BluetoothAdapter
 import android.content.Intent
+import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -63,13 +64,20 @@ fun SetupScreen(
 
         Button(
             onClick = {
-                permissionLauncher.launch(
+                val perms = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     arrayOf(
                         Manifest.permission.BLUETOOTH_CONNECT,
                         Manifest.permission.BLUETOOTH_SCAN,
                         Manifest.permission.ACCESS_FINE_LOCATION
                     )
-                )
+                } else {
+                    arrayOf(
+                        Manifest.permission.BLUETOOTH,
+                        Manifest.permission.BLUETOOTH_ADMIN,
+                        Manifest.permission.ACCESS_FINE_LOCATION
+                    )
+                }
+                permissionLauncher.launch(perms)
             },
             enabled = !permissionsGranted
         ) {
