@@ -119,7 +119,7 @@ fun RoleSelectionScreen(
                     .height(150.dp)
                     .fillMaxWidth()
                     .padding(start = 26.dp, end = 26.dp),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.TopCenter
             ) {
                 val buttonText = when (selectedRole) {
                     RoleViewModel.Role.Server -> "Switch to Client"
