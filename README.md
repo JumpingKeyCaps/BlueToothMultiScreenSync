@@ -119,6 +119,22 @@ All object rendering and interaction calculations on the Slave are performed rel
 
 ---
 
+### Reflection & Hidden APIs
+
+This project also includes a **proof-of-concept** that bypasses the mandatory out-of-app Bluetooth pairing flow by using **reflection** to access hidden Android APIs (classified as *light greylist*). 
+
+
+The purpose is **educational**: to showcase knowledge of low-level Android internals and how developers historically worked around platform restrictions when facing UX-breaking limitations.  
+
+⚠️ **Disclaimer**  
+- Hidden APIs are unstable: they can be logged, restricted, or removed without notice in future Android versions. (9->13 : Ok Tiers!)  
+- Behavior may differ across OEM implementations and `targetSdkVersion`. (Tested on Samsung and Xiaomi devices + minSdk v28 to v33) 
+- Not production-ready — the proper way remains using a `BroadcastReceiver` after standard pairing.  
+
+The reflection hack is kept here as a **portfolio experiment**, demonstrating both awareness of the risks and the ability to design production-safe fallbacks.
+
+---
+
 ## Data Flow Overview
 
 1. **Pairing Phase**
@@ -190,6 +206,9 @@ Enable:
 - Multiple draggable objects.
 - Cross-device gestures.
 - Shared state beyond just position (e.g., rotation, scale).
+
+### Reflection Cleanup
+In a production-ready version, all reflection code will be removed in favor of stable public APIs only.  
 
 ---
 
