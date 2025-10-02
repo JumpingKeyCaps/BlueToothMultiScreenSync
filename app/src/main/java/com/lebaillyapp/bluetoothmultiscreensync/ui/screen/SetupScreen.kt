@@ -15,6 +15,37 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.lebaillyapp.bluetoothmultiscreensync.viewmodel.SetupViewModel
 
+/**
+ * ## SetupScreen
+ *
+ * Composable UI step that ensures all prerequisites for Bluetooth communication
+ * are satisfied before entering the rest of the app.
+ *
+ * ### Responsibilities
+ * - Requests **runtime permissions** required for Bluetooth Classic.
+ *   - Android 12+ (API 31+): `BLUETOOTH_CONNECT`, `BLUETOOTH_SCAN`, `ACCESS_FINE_LOCATION`
+ *   - Below Android 12: `BLUETOOTH`, `BLUETOOTH_ADMIN`, `ACCESS_FINE_LOCATION`
+ * - Ensures **Bluetooth is enabled** on the device by launching the system intent
+ *   `BluetoothAdapter.ACTION_REQUEST_ENABLE`.
+ * - Ensures **Location Services** are enabled, since scanning requires it.
+ *   Opens system location settings (`Settings.ACTION_LOCATION_SOURCE_SETTINGS`).
+ * - Observes [SetupViewModel] state (`permissionsGranted`, `bluetoothEnabled`,
+ *   `locationEnabled`, `readyToProceed`).
+ * - When all conditions are met, triggers the [onReady] callback to allow navigation
+ *   to the next screen.
+ *
+ * ### UI Behavior
+ * - Displays a column of action buttons:
+ *   - **Request Permissions**
+ *   - **Enable Bluetooth**
+ *   - **Enable Location**
+ * - Each button becomes enabled only if the prerequisite condition is not yet satisfied.
+ * - Shows a success message `"Tout est prêt !"` once all requirements are fulfilled.
+ *
+ *
+ * @param viewModel [SetupViewModel] providing state and update logic for setup flow.
+ * @param onReady Callback invoked once all prerequisites are satisfied.
+ */
 @Composable
 fun SetupScreen(
     viewModel: SetupViewModel,
