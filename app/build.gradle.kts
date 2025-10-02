@@ -10,7 +10,7 @@ android {
 
     defaultConfig {
         applicationId = "com.lebaillyapp.bluetoothmultiscreensync"
-        minSdk = 33
+        minSdk = 28
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
@@ -60,5 +60,5 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.6.3")
 
-
+    implementation("androidx.navigation:navigation-compose:2.9.4")
 }

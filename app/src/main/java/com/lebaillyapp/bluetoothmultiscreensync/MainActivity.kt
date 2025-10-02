@@ -22,125 +22,88 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.compose.rememberNavController
 import com.lebaillyapp.bluetoothmultiscreensync.data.repository.BluetoothRepository
-import com.lebaillyapp.bluetoothmultiscreensync.data.service.BluetoothConnectionService
-import com.lebaillyapp.bluetoothmultiscreensync.ui.factory.BluetoothViewModelFactory
-import com.lebaillyapp.bluetoothmultiscreensync.ui.screen.BTScannerVM
-import com.lebaillyapp.bluetoothmultiscreensync.ui.screen.BTStatusPulseScreen
-import com.lebaillyapp.bluetoothmultiscreensync.ui.screen.BtScannerWithPermissions
+import com.lebaillyapp.bluetoothmultiscreensync.navigation.AppNavGraph
+
 import com.lebaillyapp.bluetoothmultiscreensync.ui.theme.BlueToothMultiScreenSyncTheme
-import com.lebaillyapp.bluetoothmultiscreensync.ui.viewmodel.BluetoothViewModel
+import com.lebaillyapp.bluetoothmultiscreensync.viewmodel.SetupViewModel
+import com.lebaillyapp.bluetoothmultiscreensync.viewmodel.factory.SetupViewModelFactory
+import java.util.UUID
+
 
 /**
- * Main entry point of the app.
+ * ## BluetoothConstants
  *
- * Handles:
- * 1- Dynamic request of Bluetooth permissions.
- * 2- Ensures Bluetooth is enabled on device (asks user if needed).
- * 3- Sets the Compose UI with [BluetoothDemoScreen] for testing BT features.
+ * Holds constant values related to Bluetooth Classic SPP used throughout the app.
+ */
+object BluetoothConstants {
+    /**
+     * Standard Serial Port Profile (SPP) UUID for Bluetooth Classic communication.
+     * Used by both server and client for RFCOMM socket creation.
+     */
+    val SERVICE_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB") // SPP standard
+}
+/**
+ * ## MainActivity
+ *
+ * Entry point of the **BlueToothMultiScreenSync** app.
+ * Responsible for:
+ * 1. Setting up the app theme and Compose content.
+ * 2. Initializing the Bluetooth adapter.
+ * 3. Creating a singleton [BluetoothRepository] scoped to the activity for sharing
+ *    Bluetooth state across multiple screens and ViewModels.
+ * 4. Setting up the Navigation Graph and injecting required ViewModels.
+ *
+ * ### Notes:
+ * - The repository is currently activity-scoped for simplicity during the POC.
+ *   In production, it should ideally be scoped to the application to survive
+ *   configuration changes and activity recreation.
+ * - [ViewModel] are initialized with a factory (no DI in this POC)
+ *
+ * ### Navigation Flow:
+ * - **SetupScreen**: Handles permissions and Bluetooth activation.
+ * - **RoleSelectionScreen**: Lets the user select Master/Slave role.
+ * - **PlaygroundScreen**: Displays the main interactive virtual canvas.
+ *
+ * All screens share the same [BluetoothRepository] instance ensuring ongoing
+ * connections and message flows survive ViewModel recreation and navigation.
  */
 class MainActivity : ComponentActivity() {
-
-
-    private val viewModel: BluetoothViewModel by viewModels {
-        BluetoothViewModelFactory()
-    }
-
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // 1- Request Bluetooth permissions dynamically
-   //     requestBtPermissions()
+        val bluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
 
-        // 2- Ensure Bluetooth is enabled
-   //     ensureBluetoothEnabled()
+        val repository = BluetoothRepository(
+            context = applicationContext,
+            adapter = bluetoothAdapter,
+            serviceUUID = BluetoothConstants.SERVICE_UUID
+        )
 
-        // 3- Set the main Compose UI
         setContent {
             BlueToothMultiScreenSyncTheme {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    // Test BT feature flow !
-                  //  BTStatusPulseScreen()
+                val navController = rememberNavController()
+                val setupViewModel: SetupViewModel = viewModel(
+                    factory = SetupViewModelFactory(
+                        repository = repository,
+                        bluetoothAdapter = bluetoothAdapter,
+                        application = application
+                    )
+                )
 
-                 //   BtScannerWithPermissions(this@MainActivity)
-
-
-                    BTScannerVM(this@MainActivity, viewModel = viewModel)
-
-                }
+                AppNavGraph(
+                    navController = navController,
+                    setupViewModel = setupViewModel,
+                    repository = repository,
+                    bluetoothAdapter = bluetoothAdapter,
+                )
             }
         }
     }
-
-    /**
-     * Requests required Bluetooth permissions depending on Android version.
-     *
-     * Android 12+ requires [Manifest.permission.BLUETOOTH_CONNECT] and [Manifest.permission.BLUETOOTH_SCAN].
-     * Older versions use [Manifest.permission.BLUETOOTH] and [Manifest.permission.BLUETOOTH_ADMIN].
-     *
-     * Permissions are requested at runtime using [ActivityCompat.requestPermissions].
-     */
-    private fun requestBtPermissions() {
-        val perms = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            arrayOf(
-                Manifest.permission.BLUETOOTH_CONNECT,
-                Manifest.permission.BLUETOOTH_SCAN,
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            )
-        } else {
-            arrayOf(
-                Manifest.permission.BLUETOOTH,
-                Manifest.permission.BLUETOOTH_ADMIN,
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            )
-        }
-        ActivityCompat.requestPermissions(this, perms, 0)
-
-    }
-
-
-
-
-
-    /**
-     * Ensures Bluetooth is enabled on the device.
-     *
-     * If Bluetooth is not supported, prints a log.
-     * If Bluetooth is disabled, sends an [Intent] to request the user to enable it.
-     *
-     * Requires [Manifest.permission.BLUETOOTH_CONNECT] on Android 12+.
-     */
-    private fun ensureBluetoothEnabled() {
-        val bluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
-        if (bluetoothAdapter == null) {
-            println("Bluetooth not supported on this device")
-            return
-        }
-
-        if (!bluetoothAdapter.isEnabled) {
-            // check permission only on Android 12+
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-                checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) !=
-                android.content.pm.PackageManager.PERMISSION_GRANTED
-            ) {
-                println("BLUETOOTH_CONNECT permission missing, cannot enable BT programmatically")
-                return
-            }
-
-            val enableIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
-            startActivity(enableIntent)
-        }
-    }
-
-
-
-
 }
 
 
