@@ -101,9 +101,16 @@ While extending this to dynamic image streaming or other large media would neces
 - Only draw the visible section of the image.
 
 ### 🔹 Drag & Sync
-- Touch input is processed **only on the Master** by default.
-- Master sends updates in `{xVU, yVU, wVU, hVU}` format.
-- Slaves crop & render in real-time.
+- Touch input can originate from **any device** (Master or Slave).  
+- When a Slave detects a drag gesture:
+  - It forwards the touch event to the Master.  
+  - The Master updates the object position in virtual coordinates.  
+  - The Master then **rebroadcasts** the new position to all other Slaves, **excluding the original sender**.  
+- When the Master itself detects a drag:
+  - It updates the virtual position directly.  
+  - It broadcasts the update to all Slaves.  
+
+This ensures a **single source of truth** (the Master), while enabling **full collaborative drag control** of the shared virtual plane across all devices.  
 
 
 ### 🔹 Master-Controlled Virtual Viewports
@@ -172,7 +179,9 @@ The reflection hack is kept here as a **portfolio experiment**, demonstrating bo
 
 ---
 
-## Bluetooth Protocol
+### Bluetooth Protocol (Optimized)
+
+During prototyping, the communication format was JSON for its readability: 
 
 - **Transport**: Bluetooth Classic SPP (RFCOMM)
 - **Message format** (JSON, small & readable):
@@ -184,31 +193,39 @@ The reflection hack is kept here as a **portfolio experiment**, demonstrating bo
 "h": 200.0
 }
 ```
-## Future Extensions
+However, for **real-time interaction**, JSON introduces unnecessary overhead (string parsing, field names, UTF-8 encoding).  
+The protocol is now moving toward a **binary packet structure** to minimize payload size and latency.  
 
-### Multi-Device Grid
-Support more than two devices, e.g., 2×2 grid configuration. Each device would:
-- Know its grid position (row, column).
-- Calculate its viewport based on grid cell.
-- Map incoming virtual coordinates accordingly.
+Example format (16 bytes total):  
+```
+[ float32 x | float32 y | float32 w | float32 h ]
+```
+- Fixed-length, no parsing ambiguity.  
+- Can be decoded directly into native floats.  
+- ~4× smaller than JSON, reducing transmission time and CPU load.  
 
-### Dynamic Device Joining
-Allow devices to join or leave the virtual canvas dynamically. Upon joining:
-- The master sends updated virtual layout and assigns the new device’s viewport.
+This shift ensures smoother dragging and better scaling when multiple devices are involved.  
 
-### Alternative Communication Protocols
-While Bluetooth ensures offline use, future versions may support:
-- **Wi-Fi Direct** for higher bandwidth and lower latency.
-- **WebSocket over LAN** for mixed-platform setups.
+---
 
-### Extended Interaction
-Enable:
-- Multiple draggable objects.
-- Cross-device gestures.
-- Shared state beyond just position (e.g., rotation, scale).
+### Why Bluetooth Classic Instead of Wi-Fi Direct?
 
-### Reflection Cleanup
-In a production-ready version, all reflection code will be removed in favor of stable public APIs only.  
+At first glance, **Wi-Fi Direct** seems ideal (higher bandwidth, lower latency).  
+But it comes with a critical limitation: once devices are locked into a Wi-Fi Direct group, the **Wi-Fi interface is monopolized**, meaning no concurrent internet access through Wi-Fi.  
+
+That creates friction for scenarios like:  
+- Simultaneously downloading the *same asset* on all devices.  
+- Syncing shared resources from a server.  
+- Keeping online services active while devices collaborate locally.  
+
+To work around this, you’d have to rely solely on **cellular data** for internet access — expensive, unstable, and device-dependent.  
+
+By choosing **Bluetooth Classic**:  
+- Local sync happens over Bluetooth.  
+- The **Wi-Fi interface remains fully available** for internet.  
+- Devices can pull identical resources online while still acting as a shared canvas.  
+
+This trade-off prioritizes **compatibility and flexibility** over raw throughput, while still proving the concept of seamless multi-screen synchronization.  
 
 ---
 
@@ -254,6 +271,32 @@ If connection limits are reached, the master device will prioritize the most rec
 
  - Partial rendering: crop logic must handle cases where the image is 100% outside the viewport.
 
+
+## Future Extensions
+
+### Multi-Device Grid
+Support more than two devices, e.g., 2×2 grid configuration. Each device would:
+- Know its grid position (row, column).
+- Calculate its viewport based on grid cell.
+- Map incoming virtual coordinates accordingly.
+
+### Dynamic Device Joining
+Allow devices to join or leave the virtual canvas dynamically. Upon joining:
+- The master sends updated virtual layout and assigns the new device’s viewport.
+
+### Alternative Communication Protocols
+While Bluetooth ensures offline use, future versions may support:
+- **Wi-Fi Direct** for higher bandwidth and lower latency.
+- **WebSocket over LAN** for mixed-platform setups.
+
+### Extended Interaction
+Enable:
+- Multiple draggable objects.
+- Cross-device gestures.
+- Shared state beyond just position (e.g., rotation, scale).
+
+### Reflection Cleanup
+In a production-ready version, all reflection code will be removed in favor of stable public APIs only.  
    
 ---
 
