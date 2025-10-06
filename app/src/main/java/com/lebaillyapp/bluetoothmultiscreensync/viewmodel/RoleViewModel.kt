@@ -76,6 +76,9 @@ class RoleViewModel(
     /** The current active client connection, if any */
     val currentConnection get() = repository.currentConnection
 
+    init {
+        selectRole(Role.Client)// client by dflt
+    }
     /**
      * Selects a role and launches the corresponding Bluetooth operations.
      */
