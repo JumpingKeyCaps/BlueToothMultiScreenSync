@@ -7,14 +7,34 @@ import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Indication
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.ripple.rememberRipple
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.lebaillyapp.bluetoothmultiscreensync.viewmodel.SetupViewModel
-
+import com.lebaillyapp.bluetoothmultiscreensync.R
 /**
  * ## SetupScreen
  *
@@ -56,89 +76,197 @@ fun SetupScreen(
     val locationEnabled by viewModel.locationEnabled.collectAsState()
     val ready by viewModel.readyToProceed.collectAsState()
 
-    // Launcher pour demander les permissions runtime
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { results ->
         viewModel.updatePermissions(results.all { it.value })
     }
 
-    // Launcher pour activer le Bluetooth
     val bluetoothLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
-    ) {
-        viewModel.refreshStates() // update bluetooth state après retour
-    }
+    ) { viewModel.refreshStates() }
 
-    // Launcher pour ouvrir les paramètres de localisation
     val locationLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
-    ) {
-        viewModel.refreshStates() // update location state après retour
-    }
+    ) { viewModel.refreshStates() }
 
     LaunchedEffect(ready) {
         if (ready) onReady()
     }
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(24.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Text(
-            "Préparation du Bluetooth et des Permissions",
-            style = MaterialTheme.typography.titleMedium
-        )
-
-        Button(
-            onClick = {
-                val perms = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    arrayOf(
-                        Manifest.permission.BLUETOOTH_CONNECT,
-                        Manifest.permission.BLUETOOTH_SCAN,
-                        Manifest.permission.ACCESS_FINE_LOCATION
-                    )
-                } else {
-                    arrayOf(
-                        Manifest.permission.BLUETOOTH,
-                        Manifest.permission.BLUETOOTH_ADMIN,
-                        Manifest.permission.ACCESS_FINE_LOCATION
-                    )
-                }
-                permissionLauncher.launch(perms)
-            },
-            enabled = !permissionsGranted
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.fillMaxSize()
         ) {
-            Text(if (permissionsGranted) "Permissions OK" else "Demander Permissions")
-        }
-
-        Button(
-            onClick = {
-                bluetoothLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
-            },
-            enabled = permissionsGranted && !bluetoothEnabled
-        ) {
-            Text(if (bluetoothEnabled) "Bluetooth OK" else "Activer Bluetooth")
-        }
-
-        Button(
-            onClick = {
-                locationLauncher.launch(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
-            },
-            enabled = permissionsGranted && !locationEnabled
-        ) {
-            Text(if (locationEnabled) "Location OK" else "Activer Location")
-        }
-
-        if (ready) {
-            Text(
-                "Tout est prêt !",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.primary
+            // --- Texte stylé / animé ---
+            val allGood = permissionsGranted && bluetoothEnabled && locationEnabled
+            val message by animateFloatAsState(
+                targetValue = if (allGood) 1f else 0.7f,
+                animationSpec = tween(800),
+                label = "alphaAnim"
             )
+
+            val text = when {
+                allGood -> "Everything’s ready, let’s connect!"
+                !allGood && !permissionsGranted -> "Grant permissions to continue."
+                permissionsGranted && !bluetoothEnabled -> "Enable Bluetooth now!"
+                permissionsGranted && bluetoothEnabled && !locationEnabled -> "Almost there, enable Location!"
+                permissionsGranted && locationEnabled -> "Almost done — turn on Bluetooth!"
+                bluetoothEnabled && locationEnabled -> "Just grant permissions to finish!"
+                permissionsGranted && !locationEnabled -> "Grant location permissions to continue."
+
+                else -> "Let’s get your device ready for connection."
+            }
+
+            Text(
+                text = text,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier
+                    .alpha(message)
+                    .padding(bottom = 48.dp),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+            // Ligne 1 → Permissions
+            Row(
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                RoundStateButton(
+                    iconRes = if (permissionsGranted) R.drawable.ok_ico else R.drawable.phone_ico,
+                    isActive = permissionsGranted,
+                    onClick = {
+
+                        if (!permissionsGranted){
+                            val perms = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                arrayOf(
+                                    Manifest.permission.BLUETOOTH_CONNECT,
+                                    Manifest.permission.BLUETOOTH_SCAN,
+                                    Manifest.permission.ACCESS_FINE_LOCATION
+                                )
+                            } else {
+                                arrayOf(
+                                    Manifest.permission.BLUETOOTH,
+                                    Manifest.permission.BLUETOOTH_ADMIN,
+                                    Manifest.permission.ACCESS_FINE_LOCATION
+                                )
+                            }
+                            permissionLauncher.launch(perms)
+                        }
+
+
+                    }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(38.dp))
+
+            // Ligne 2 → Bluetooth + Location
+            Row(
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                RoundStateButton(
+                    iconRes = if (bluetoothEnabled) R.drawable.bluetooth_ico else R.drawable.bluetooth_disabled,
+                    isActive = bluetoothEnabled,
+                    onClick = {
+                        if (!bluetoothEnabled){
+                            bluetoothLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+                        }
+
+                    }
+                )
+
+                RoundStateButton(
+                    iconRes = if (locationEnabled) R.drawable.my_location else R.drawable.location_disabled,
+                    isActive = locationEnabled,
+                    onClick = {
+                        if (!locationEnabled){
+                            locationLauncher.launch(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                        }
+                    }
+                )
+            }
         }
     }
+}
+
+
+@Composable
+fun RoundStateButton(
+    iconRes: Int,
+    isActive: Boolean,
+    onClick: () -> Unit
+) {
+    val scale by animateFloatAsState(
+        targetValue = if (isActive) 1.05f else 1f,
+        animationSpec = spring(stiffness = Spring.StiffnessLow),
+        label = "scaleAnim"
+    )
+
+    val bgColor by animateColorAsState(
+        targetValue = if (isActive)
+            MaterialTheme.colorScheme.primary
+        else
+            MaterialTheme.colorScheme.surfaceVariant,
+        animationSpec = tween(300),
+        label = "bgAnim"
+    )
+
+    val iconTint by animateColorAsState(
+        targetValue = if (isActive)
+            MaterialTheme.colorScheme.onPrimary
+        else
+            MaterialTheme.colorScheme.onSurfaceVariant,
+        label = "tintAnim"
+    )
+
+    val interactionSource = remember { MutableInteractionSource() }
+
+    Box(
+        modifier = Modifier
+            .size(70.dp)
+            .graphicsLayer(scaleX = scale, scaleY = scale)
+            .shadow(
+                elevation = if (isActive) 8.dp else 2.dp,
+                shape = CircleShape,
+                clip = true
+            )
+            .clip(CircleShape)
+            .background(bgColor)
+            .indication(
+                interactionSource = interactionSource,
+                indication = rememberRippleOrMaterial3()
+            )
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null
+            ) { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            painter = painterResource(id = iconRes),
+            contentDescription = null,
+            tint = iconTint,
+            modifier = Modifier.size(26.dp)
+        )
+    }
+}
+
+/**
+ * Wrapper utilitaire pour éviter les warnings sur rememberRipple()
+ * et rester compatible Material3.
+ */
+@Composable
+private fun rememberRippleOrMaterial3(): Indication {
+    // Si Material3 est dispo → on crée un ripple via le thème Material3
+    return LocalIndication.current // safe + clean + conforme
 }
