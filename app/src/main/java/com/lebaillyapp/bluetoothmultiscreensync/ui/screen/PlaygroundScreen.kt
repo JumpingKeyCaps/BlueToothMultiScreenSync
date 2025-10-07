@@ -8,8 +8,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.lebaillyapp.bluetoothmultiscreensync.domain.model.ConnectionState
-import com.lebaillyapp.bluetoothmultiscreensync.domain.model.ServerState
+import com.lebaillyapp.bluetoothmultiscreensync.domain.model.bluetooth.ConnectionState
+import com.lebaillyapp.bluetoothmultiscreensync.domain.model.bluetooth.ServerState
 import com.lebaillyapp.bluetoothmultiscreensync.viewmodel.PlaygroundViewModel
 
 

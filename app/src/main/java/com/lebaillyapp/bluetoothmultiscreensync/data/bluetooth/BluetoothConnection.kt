@@ -1,7 +1,7 @@
 package com.lebaillyapp.bluetoothmultiscreensync.data.bluetooth
 
 import android.bluetooth.BluetoothSocket
-import com.lebaillyapp.bluetoothmultiscreensync.domain.model.ConnectionState
+import com.lebaillyapp.bluetoothmultiscreensync.domain.model.bluetooth.ConnectionState
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*

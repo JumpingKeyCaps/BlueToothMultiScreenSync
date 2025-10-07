@@ -5,7 +5,7 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothSocket
 import androidx.annotation.RequiresPermission
-import com.lebaillyapp.bluetoothmultiscreensync.domain.model.ConnectionState
+import com.lebaillyapp.bluetoothmultiscreensync.domain.model.bluetooth.ConnectionState
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import java.io.IOException

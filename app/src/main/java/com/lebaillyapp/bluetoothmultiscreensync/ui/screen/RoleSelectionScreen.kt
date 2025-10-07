@@ -26,8 +26,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.lebaillyapp.bluetoothmultiscreensync.R
-import com.lebaillyapp.bluetoothmultiscreensync.domain.model.ConnectionState
-import com.lebaillyapp.bluetoothmultiscreensync.domain.model.ServerState
+import com.lebaillyapp.bluetoothmultiscreensync.domain.model.bluetooth.ConnectionState
+import com.lebaillyapp.bluetoothmultiscreensync.domain.model.bluetooth.ServerState
 import com.lebaillyapp.bluetoothmultiscreensync.utils.FractalVisualizer
 import com.lebaillyapp.bluetoothmultiscreensync.viewmodel.RoleViewModel
 import androidx.compose.animation.core.updateTransition

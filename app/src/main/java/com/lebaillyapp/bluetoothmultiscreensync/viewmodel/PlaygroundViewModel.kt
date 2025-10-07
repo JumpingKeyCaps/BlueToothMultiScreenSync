@@ -2,8 +2,8 @@ package com.lebaillyapp.bluetoothmultiscreensync.viewmodel
 
 import androidx.lifecycle.ViewModel
 import com.lebaillyapp.bluetoothmultiscreensync.data.repository.BluetoothRepository
-import com.lebaillyapp.bluetoothmultiscreensync.domain.model.ConnectionState
-import com.lebaillyapp.bluetoothmultiscreensync.domain.model.ServerState
+import com.lebaillyapp.bluetoothmultiscreensync.domain.model.bluetooth.ConnectionState
+import com.lebaillyapp.bluetoothmultiscreensync.domain.model.bluetooth.ServerState
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 
