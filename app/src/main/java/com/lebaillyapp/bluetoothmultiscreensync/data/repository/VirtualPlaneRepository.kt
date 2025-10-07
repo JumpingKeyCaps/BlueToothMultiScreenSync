@@ -1,9 +1,9 @@
 package com.lebaillyapp.bluetoothmultiscreensync.data.repository
 
 import androidx.compose.ui.geometry.Offset
-import com.lebaillyapp.bluetoothmultiscreensync.data.virtualPlane.Viewport
-import com.lebaillyapp.bluetoothmultiscreensync.data.virtualPlane.VirtualOrientation
 import com.lebaillyapp.bluetoothmultiscreensync.data.virtualPlane.VirtualPlaneService
+import com.lebaillyapp.bluetoothmultiscreensync.domain.model.virtualPlane.Viewport
+import com.lebaillyapp.bluetoothmultiscreensync.domain.model.virtualPlane.VirtualOrientation
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
