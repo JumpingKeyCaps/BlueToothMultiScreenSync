@@ -1,4 +1,4 @@
-package com.lebaillyapp.bluetoothmultiscreensync.domain.model
+package com.lebaillyapp.bluetoothmultiscreensync.domain.model.bluetooth
 
 import android.bluetooth.BluetoothDevice
 
