@@ -4,34 +4,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import androidx.compose.ui.geometry.Offset
+import com.lebaillyapp.bluetoothmultiscreensync.domain.model.virtualPlane.Viewport
+import com.lebaillyapp.bluetoothmultiscreensync.domain.model.virtualPlane.VirtualOrientation
 
-/**
- * Enum representing the virtual orientation of a viewport.
- * Allows the master device to define a logical orientation
- * that may differ from the physical orientation of the device.
- */
-enum class VirtualOrientation {
-    NORMAL, ROTATED_90, ROTATED_180, ROTATED_270, FLIPPED_X, FLIPPED_Y
-}
-
-/**
- * Data class representing a viewport assigned to a device.
- *
- * @property deviceId Unique identifier of the device
- * @property offsetX X position of the viewport on the virtual plane
- * @property offsetY Y position of the viewport on the virtual plane
- * @property width Width of the viewport in virtual units
- * @property height Height of the viewport in virtual units
- * @property orientation Virtual orientation applied to the viewport
- */
-data class Viewport(
-    val deviceId: String,
-    var offsetX: Float,
-    var offsetY: Float,
-    var width: Float,
-    var height: Float,
-    var orientation: VirtualOrientation = VirtualOrientation.NORMAL
-)
 
 /**
  * Service responsible for managing the virtual plane and device viewports.
