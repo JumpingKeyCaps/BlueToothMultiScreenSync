@@ -19,13 +19,13 @@ import kotlinx.coroutines.flow.map
  * - Enable easier testing through dependency injection
  *
  *
- * ## Responsibilities
+ * #### Responsibilities
  * - **Coordinate Transformations**: Convert between virtual, local, and screen coordinates
  * - **Viewport Management**: Define, update, and observe device viewport configurations
  * - **Plane Initialization**: Set up the global virtual canvas dimensions
  * - **Reactive State**: Expose observable flows for UI updates
  *
- * ## Thread Safety
+ * #### Thread Safety
  * All operations are thread-safe. The underlying [VirtualPlaneService] uses
  * [kotlinx.coroutines.flow.StateFlow] with atomic updates, making it safe to call
  * from any coroutine context.
@@ -187,14 +187,6 @@ class VirtualPlaneRepository(
      * @param x Global X coordinate on the virtual plane
      * @param y Global Y coordinate on the virtual plane
      * @return [Offset] in local device coordinates (still in virtual units)
-     *
-     * ## Example
-     * ```kotlin
-     * // Object at (1500, 500) VU on the virtual plane
-     * // Device viewport starts at (1000, 0) VU
-     * val local = virtualPlaneRepo.virtualToLocal(deviceId, 1500f, 500f)
-     * // Result: (500, 500) in local coordinates
-     * ```
      *
      * @see VirtualPlaneService.localToVirtual For the inverse transformation
      * @see VirtualPlaneService.virtualToScreen To get screen pixel coordinates
