@@ -10,6 +10,7 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.util.DisplayMetrics
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -19,16 +20,23 @@ import androidx.annotation.RequiresPermission
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.rememberNavController
 import com.lebaillyapp.bluetoothmultiscreensync.data.repository.BluetoothRepository
+import com.lebaillyapp.bluetoothmultiscreensync.domain.model.config.ViewportConfig
+import com.lebaillyapp.bluetoothmultiscreensync.domain.model.virtualPlane.VirtualOrientation
 import com.lebaillyapp.bluetoothmultiscreensync.navigation.AppNavGraph
+import com.lebaillyapp.bluetoothmultiscreensync.ui.screen.PlaygroundSettingsScreen
 
 import com.lebaillyapp.bluetoothmultiscreensync.ui.theme.BlueToothMultiScreenSyncTheme
+import com.lebaillyapp.bluetoothmultiscreensync.viewmodel.PlaygroundSettingsViewModel
 import com.lebaillyapp.bluetoothmultiscreensync.viewmodel.SetupViewModel
+import com.lebaillyapp.bluetoothmultiscreensync.viewmodel.factory.PlaygroundSettingsViewModelFactory
 import com.lebaillyapp.bluetoothmultiscreensync.viewmodel.factory.SetupViewModelFactory
 import java.util.UUID
 
@@ -95,12 +103,54 @@ class MainActivity : ComponentActivity() {
                     )
                 )
 
+                //todo -- real flow -  ------------------------
+                /**
                 AppNavGraph(
                     navController = navController,
                     setupViewModel = setupViewModel,
                     repository = repository,
                     bluetoothAdapter = bluetoothAdapter,
                 )
+
+                */
+
+
+                //todo- bypass flow -------------------------
+
+                // Test direct de la screen, bypass navigation
+                val playgroundViewModel: PlaygroundSettingsViewModel = viewModel(
+                    factory = PlaygroundSettingsViewModelFactory()
+                )
+
+                val metrics: DisplayMetrics = resources.displayMetrics
+                val screenWidthPx = metrics.widthPixels.toFloat()
+                val screenHeightPx = metrics.heightPixels.toFloat()
+
+                // Initialise 1 viewport de test si la liste est vide
+                val virtualPlane by playgroundViewModel.virtualPlaneConfig.collectAsState()
+                if (virtualPlane.viewports.isEmpty()) {
+                    playgroundViewModel.addViewport(
+                        ViewportConfig(
+                            deviceId = "Device 1",
+                            offsetX = 10f,
+                            offsetY = 10f,
+                            width = 50f,
+                            height = 50f,
+                            orientation = VirtualOrientation.NORMAL,
+                            screenWidthPx = screenWidthPx.toInt(),
+                            screenHeightPx = screenHeightPx.toInt()
+                        )
+                    )
+                }
+
+
+                PlaygroundSettingsScreen(
+                    viewModel = playgroundViewModel,
+                    isMaster = true,
+                    onValidate = { /* juste log ou toast */ }
+                )
+
+
             }
         }
     }
