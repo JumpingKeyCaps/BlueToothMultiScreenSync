@@ -145,9 +145,15 @@ class MainActivity : ComponentActivity() {
 
 
                 PlaygroundSettingsScreen(
-                    viewModel = playgroundViewModel,
                     isMaster = true,
-                    onValidate = { /* juste log ou toast */ }
+                    currentDeviceId = "Master",
+                    onValidate = { config ->
+                        println("VirtualPlane: ${config.planeWidth}x${config.planeHeight}")
+                        config.viewports.forEach { vp ->
+                            println("${vp.deviceId}: offset=(${vp.offsetX}, ${vp.offsetY})")
+                        }
+                        // TODO: Broadcast la config via Bluetooth
+                    }
                 )
 
 
