@@ -43,6 +43,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.consumeAllChanges
@@ -51,8 +52,12 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.lebaillyapp.bluetoothmultiscreensync.domain.model.config.ViewportConfig
+import com.lebaillyapp.bluetoothmultiscreensync.domain.model.config.VirtualPlaneConfig
+import com.lebaillyapp.bluetoothmultiscreensync.domain.model.virtualPlane.VirtualOrientation
 import com.lebaillyapp.bluetoothmultiscreensync.viewmodel.PlaygroundSettingsViewModel
 import kotlin.collections.forEach
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -60,16 +65,23 @@ data class LocalViewport(
     val id: String,
     var offsetX: Float,
     var offsetY: Float,
-    var isPortrait: Boolean = true
-)
+    var isPortrait: Boolean = true,
+    var isDragging: Boolean = false,
+    val isCurrentDevice: Boolean = false
+) {
+    fun bounds(widthPx: Float, heightPx: Float): Rect {
+        return Rect(left = offsetX, top = offsetY, right = offsetX + widthPx, bottom = offsetY + heightPx)
+    }
+}
 
 @SuppressLint("UnusedBoxWithConstraintsScope")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlaygroundSettingsScreen(
-    viewModel: PlaygroundSettingsViewModel,
+    modifier: Modifier = Modifier,
     isMaster: Boolean = true,
-    onValidate: () -> Unit = {}
+    currentDeviceId: String = "Master",
+    onValidate: (VirtualPlaneConfig) -> Unit = {}
 ) {
     Scaffold(
         topBar = {
@@ -77,11 +89,17 @@ fun PlaygroundSettingsScreen(
                 title = {
                     Column {
                         Text("Playground Settings", style = MaterialTheme.typography.titleLarge)
-                        Text(if (isMaster) "Master Mode" else "Slave Mode", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            if (isMaster) "Master Mode" else "Slave Mode",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
                     }
                 },
                 actions = {
-                    IconButton(onClick = onValidate) {
+                    IconButton(onClick = {
+                        // val config = generateVirtualPlaneConfig(viewports)
+                        // onValidate(config)
+                    }) {
                         Icon(Icons.Default.Check, contentDescription = "Validate")
                     }
                 }
@@ -89,122 +107,108 @@ fun PlaygroundSettingsScreen(
         }
     ) { paddingValues ->
         Box(
-            modifier = Modifier
+            modifier = modifier
                 .fillMaxSize()
                 .padding(paddingValues),
             contentAlignment = Alignment.Center
         ) {
-            // fixed preview plane size in DP for simplicity (you can adapt to BoxWithConstraints later)
             val planeWidthDp = 330.dp
             val planeHeightDp = 480.dp
+            val density = LocalDensity.current
 
-            // fakelist of viewports
+            // Liste des viewports
             val viewports = remember {
                 mutableStateListOf(
-                    LocalViewport("Master", 0f, 0f),
-                    LocalViewport("Device A", 140f, 0f),
-                    LocalViewport("Device B", 340f, 0f)
+                    LocalViewport("Master", 0f, 0f, isCurrentDevice = currentDeviceId == "Master"),
+                    LocalViewport("Device A", 100f, 0f, isCurrentDevice = currentDeviceId == "Device A"),
+                    LocalViewport("Device B", 200f, 0f, isCurrentDevice = currentDeviceId == "Device B")
                 )
             }
 
-            val density = LocalDensity.current
-
-            // measure plane pixels
             var planeWidthPx by remember { mutableStateOf(0f) }
             var planeHeightPx by remember { mutableStateOf(0f) }
 
             Box(
                 modifier = Modifier
-                    .size(planeWidthDp, planeHeightDp)
+                    .fillMaxWidth()
+                    .padding(10.dp)
+                    .height(planeHeightDp)
                     .onGloballyPositioned { coords ->
                         planeWidthPx = coords.size.width.toFloat()
                         planeHeightPx = coords.size.height.toFloat()
                     }
                     .background(Color(0xFF252531), shape = RoundedCornerShape(8.dp))
             ) {
-                // For each viewport create an independent composable with its local states
                 viewports.forEach { vp ->
-                    // local mutable states per viewport (stable across recompositions)
-                    var offsetX by remember(vp.id) { mutableStateOf(vp.offsetX) }
-                    var offsetY by remember(vp.id) { mutableStateOf(vp.offsetY) }
+                    val offsetX = remember(vp.id) { mutableStateOf(vp.offsetX) }
+                    val offsetY = remember(vp.id) { mutableStateOf(vp.offsetY) }
                     var isPortrait by remember(vp.id) { mutableStateOf(vp.isPortrait) }
                     var isDragging by remember(vp.id) { mutableStateOf(false) }
 
-                    // choose sizes in dp (visual)
-                    val widthDp = if (isPortrait) 100.dp else 180.dp
-                    val heightDp = if (isPortrait) 180.dp else 100.dp
+                    val widthDp = if (isPortrait) 100.dp else 200.dp
+                    val heightDp = if (isPortrait) 200.dp else 100.dp
 
-                    // convert to px for clamp
                     val viewportWidthPx = with(density) { widthDp.toPx() }
                     val viewportHeightPx = with(density) { heightDp.toPx() }
 
-                    // ensure max values non-negative to avoid coerceIn empty range
                     val maxX = max(0f, planeWidthPx - viewportWidthPx)
                     val maxY = max(0f, planeHeightPx - viewportHeightPx)
 
-                    // keep offsets clamped after rotations / plane resize
-                    LaunchedEffect(isPortrait, planeWidthPx, planeHeightPx) {
-                        offsetX = offsetX.coerceIn(0f, maxX)
-                        offsetY = offsetY.coerceIn(0f, maxY)
-                        vp.offsetX = offsetX
-                        vp.offsetY = offsetY
-                    }
+                    val clampedXPx = with(density) { offsetX.value.dp.toPx() }.coerceIn(0f, maxX)
+                    val clampedYPx = with(density) { offsetY.value.dp.toPx() }.coerceIn(0f, maxY)
 
                     val scale by animateFloatAsState(if (isDragging) 1.0f else 1f)
                     val elevation by animateFloatAsState(if (isDragging) 12f else 4f)
 
+                    val backgroundColor = when {
+                        vp.isCurrentDevice -> Color(0xFF4CAF50)
+                        isDragging -> Color(0xFF2979FF)
+                        else -> Color(0xFF546E7A)
+                    }
 
                     Box(
                         modifier = Modifier
-                            .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
+                            .offset { IntOffset(clampedXPx.roundToInt(), clampedYPx.roundToInt()) }
                             .size(widthDp, heightDp)
-                            .graphicsLayer {
-                                scaleX = scale
-                                scaleY = scale
-                                shadowElevation = elevation
-
-                            }
+                            .graphicsLayer { scaleX = scale; scaleY = scale; shadowElevation = elevation }
                             .pointerInput(vp.id, planeWidthPx, planeHeightPx, isPortrait) {
                                 detectDragGestures(
-                                    onDragStart = { isDragging = true },
+                                    onDragStart = {
+                                        isDragging = true
+                                        vp.isDragging = true
+                                    },
                                     onDragEnd = {
                                         isDragging = false
-                                        // persist final pos
-                                        vp.offsetX = offsetX
-                                        vp.offsetY = offsetY
-                                    },
-                                    onDragCancel = {
-                                        isDragging = false
+                                        vp.isDragging = false
+                                        vp.offsetX = offsetX.value
+                                        vp.offsetY = offsetY.value
                                     }
                                 ) { change, dragAmount ->
-                                    change.consumeAllChanges()
-                                    // if plane not measured yet skip
+                                    change.consume()
                                     if (planeWidthPx <= 0f || planeHeightPx <= 0f) return@detectDragGestures
 
-                                    // compute new offsets in px and clamp using maxX/maxY above
-                                    val newX = (offsetX + dragAmount.x).coerceIn(0f, maxX)
-                                    val newY = (offsetY + dragAmount.y).coerceIn(0f, maxY)
+                                    val newX = (offsetX.value + dragAmount.x).coerceIn(0f, maxX)
+                                    val newY = (offsetY.value + dragAmount.y).coerceIn(0f, maxY)
 
-                                    offsetX = newX
-                                    offsetY = newY
-
-                                    // immediate update to the backing model list
-                                    vp.offsetX = offsetX
-                                    vp.offsetY = offsetY
+                                    offsetX.value = newX
+                                    offsetY.value = newY
+                                    vp.offsetX = newX
+                                    vp.offsetY = newY
                                 }
                             }
-                            .background(Color(0xFF2979FF), shape = RoundedCornerShape(6.dp)),
+                            .background(backgroundColor, shape = RoundedCornerShape(6.dp)),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(vp.id, color = Color.White)
+                            Text(vp.id, color = Color.White, style = MaterialTheme.typography.bodySmall)
+                            if (vp.isCurrentDevice) {
+                                Text("(You)", color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.labelSmall)
+                            }
                             Spacer(modifier = Modifier.height(6.dp))
                             IconButton(
                                 onClick = {
-                                    // flip orientation and clamp to new sizes
                                     isPortrait = !isPortrait
                                     vp.isPortrait = isPortrait
-                                    // clamp done by LaunchedEffect
                                 },
                                 modifier = Modifier.size(28.dp)
                             ) {
@@ -213,10 +217,49 @@ fun PlaygroundSettingsScreen(
                         }
                     }
                 }
+
+                Text(
+                    "Drag viewports to snap them together",
+                    color = Color.White.copy(alpha = 0.7f),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(16.dp)
+                )
             }
         }
     }
 }
+
+// Génération config finale
+private fun generateVirtualPlaneConfig(viewports: List<LocalViewport>): VirtualPlaneConfig {
+    if (viewports.isEmpty()) return VirtualPlaneConfig(planeWidth = 0f, planeHeight = 0f)
+
+    val viewportConfigs = viewports.map { vp ->
+        ViewportConfig(
+            deviceId = vp.id,
+            offsetX = vp.offsetX,
+            offsetY = vp.offsetY,
+            width = if (vp.isPortrait) 100f else 180f,
+            height = if (vp.isPortrait) 180f else 100f,
+            screenWidthPx = 1080,
+            screenHeightPx = 2400,
+            orientation = VirtualOrientation.NORMAL
+        )
+    }
+
+    val minX = viewportConfigs.minOf { it.offsetX }
+    val minY = viewportConfigs.minOf { it.offsetY }
+    val maxX = viewportConfigs.maxOf { it.offsetX + it.width }
+    val maxY = viewportConfigs.maxOf { it.offsetY + it.height }
+
+    return VirtualPlaneConfig(
+        planeWidth = maxX - minX,
+        planeHeight = maxY - minY,
+        viewports = viewportConfigs
+    )
+}
+
 
 
 
