@@ -70,7 +70,12 @@ data class LocalViewport(
     val isCurrentDevice: Boolean = false
 ) {
     fun bounds(widthPx: Float, heightPx: Float): Rect {
-        return Rect(left = offsetX, top = offsetY, right = offsetX + widthPx, bottom = offsetY + heightPx)
+        return Rect(
+            left = offsetX,
+            top = offsetY,
+            right = offsetX + widthPx,
+            bottom = offsetY + heightPx
+        )
     }
 }
 
@@ -116,7 +121,6 @@ fun PlaygroundSettingsScreen(
             val planeHeightDp = 480.dp
             val density = LocalDensity.current
 
-            // Liste des viewports
             val viewports = remember {
                 mutableStateListOf(
                     LocalViewport("Master", 0f, 0f, isCurrentDevice = currentDeviceId == "Master"),
@@ -170,8 +174,13 @@ fun PlaygroundSettingsScreen(
                         modifier = Modifier
                             .offset { IntOffset(clampedXPx.roundToInt(), clampedYPx.roundToInt()) }
                             .size(widthDp, heightDp)
-                            .graphicsLayer { scaleX = scale; scaleY = scale; shadowElevation = elevation }
+                            .graphicsLayer {
+                                scaleX = scale
+                                scaleY = scale
+                                shadowElevation = elevation
+                            }
                             .pointerInput(vp.id, planeWidthPx, planeHeightPx, isPortrait) {
+                                val densityValue = density.density
                                 detectDragGestures(
                                     onDragStart = {
                                         isDragging = true
@@ -185,10 +194,14 @@ fun PlaygroundSettingsScreen(
                                     }
                                 ) { change, dragAmount ->
                                     change.consume()
-                                    if (planeWidthPx <= 0f || planeHeightPx <= 0f) return@detectDragGestures
 
-                                    val newX = (offsetX.value + dragAmount.x).coerceIn(0f, maxX)
-                                    val newY = (offsetY.value + dragAmount.y).coerceIn(0f, maxY)
+                                    val dragXdp = dragAmount.x / densityValue
+                                    val dragYdp = dragAmount.y / densityValue
+                                    val maxXdp = (maxX / densityValue)
+                                    val maxYdp = (maxY / densityValue)
+
+                                    val newX = (offsetX.value + dragXdp).coerceIn(0f, maxXdp)
+                                    val newY = (offsetY.value + dragYdp).coerceIn(0f, maxYdp)
 
                                     offsetX.value = newX
                                     offsetY.value = newY
@@ -202,7 +215,11 @@ fun PlaygroundSettingsScreen(
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(vp.id, color = Color.White, style = MaterialTheme.typography.bodySmall)
                             if (vp.isCurrentDevice) {
-                                Text("(You)", color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.labelSmall)
+                                Text(
+                                    "(You)",
+                                    color = Color.White.copy(alpha = 0.7f),
+                                    style = MaterialTheme.typography.labelSmall
+                                )
                             }
                             Spacer(modifier = Modifier.height(6.dp))
                             IconButton(
@@ -259,8 +276,6 @@ private fun generateVirtualPlaneConfig(viewports: List<LocalViewport>): VirtualP
         viewports = viewportConfigs
     )
 }
-
-
 
 
 
