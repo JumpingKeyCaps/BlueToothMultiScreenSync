@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -67,6 +68,7 @@ data class LocalViewport(
     var offsetY: Float,
     var isPortrait: Boolean = true,
     var isDragging: Boolean = false,
+    var isOverlapping: Boolean = false,
     val isCurrentDevice: Boolean = false
 ) {
     fun bounds(widthPx: Float, heightPx: Float): Rect {
@@ -148,9 +150,10 @@ fun PlaygroundSettingsScreen(
                     val offsetY = remember(vp.id) { mutableStateOf(vp.offsetY) }
                     var isPortrait by remember(vp.id) { mutableStateOf(vp.isPortrait) }
                     var isDragging by remember(vp.id) { mutableStateOf(false) }
+                    var isOverlapping by remember(vp.id) { mutableStateOf(false) }
 
-                    val widthDp = if (isPortrait) 100.dp else 200.dp
-                    val heightDp = if (isPortrait) 200.dp else 100.dp
+                    val widthDp = if (isPortrait) 80.dp else 160.dp
+                    val heightDp = if (isPortrait) 160.dp else 80.dp
 
                     val viewportWidthPx = with(density) { widthDp.toPx() }
                     val viewportHeightPx = with(density) { heightDp.toPx() }
@@ -164,10 +167,40 @@ fun PlaygroundSettingsScreen(
                     val scale by animateFloatAsState(if (isDragging) 1.0f else 1f)
                     val elevation by animateFloatAsState(if (isDragging) 12f else 4f)
 
+                    // Couleur du viewport
                     val backgroundColor = when {
                         vp.isCurrentDevice -> Color(0xFF4CAF50)
                         isDragging -> Color(0xFF2979FF)
                         else -> Color(0xFF546E7A)
+                    }
+
+                    // Détection de superposition
+                    fun checkOverlap(): Boolean {
+                        val currentWidthPx = with(density) { (if (isPortrait) 80.dp else 160.dp).toPx() }
+                        val currentHeightPx = with(density) { (if (isPortrait) 160.dp else 80.dp).toPx() }
+
+                        val currentRect = Rect(
+                            offsetX.value * density.density,
+                            offsetY.value * density.density,
+                            offsetX.value * density.density + currentWidthPx,
+                            offsetY.value * density.density + currentHeightPx
+                        )
+
+                        return viewports.any { other ->
+                            if (other == vp) return@any false
+
+                            val otherWidthPx = with(density) { (if (other.isPortrait) 80.dp else 160.dp).toPx() }
+                            val otherHeightPx = with(density) { (if (other.isPortrait) 160.dp else 80.dp).toPx() }
+
+                            val otherRect = Rect(
+                                other.offsetX * density.density,
+                                other.offsetY * density.density,
+                                other.offsetX * density.density + otherWidthPx,
+                                other.offsetY * density.density + otherHeightPx
+                            )
+
+                            currentRect.overlaps(otherRect)
+                        }
                     }
 
                     Box(
@@ -191,10 +224,11 @@ fun PlaygroundSettingsScreen(
                                         vp.isDragging = false
                                         vp.offsetX = offsetX.value
                                         vp.offsetY = offsetY.value
+                                        isOverlapping = checkOverlap()
+                                        vp.isOverlapping = isOverlapping
                                     }
                                 ) { change, dragAmount ->
                                     change.consume()
-
                                     val dragXdp = dragAmount.x / densityValue
                                     val dragYdp = dragAmount.y / densityValue
                                     val maxXdp = (maxX / densityValue)
@@ -207,9 +241,18 @@ fun PlaygroundSettingsScreen(
                                     offsetY.value = newY
                                     vp.offsetX = newX
                                     vp.offsetY = newY
+
+                                    // Vérifie en live le chevauchement
+                                    isOverlapping = checkOverlap()
+                                    vp.isOverlapping = isOverlapping
                                 }
                             }
-                            .background(backgroundColor, shape = RoundedCornerShape(6.dp)),
+                            .background(backgroundColor, shape = RoundedCornerShape(6.dp))
+                            .then(
+                                if (isOverlapping)
+                                    Modifier.border(2.dp, Color.Red, RoundedCornerShape(6.dp))
+                                else Modifier
+                            ),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -226,6 +269,8 @@ fun PlaygroundSettingsScreen(
                                 onClick = {
                                     isPortrait = !isPortrait
                                     vp.isPortrait = isPortrait
+                                    isOverlapping = checkOverlap()
+                                    vp.isOverlapping = isOverlapping
                                 },
                                 modifier = Modifier.size(28.dp)
                             ) {
