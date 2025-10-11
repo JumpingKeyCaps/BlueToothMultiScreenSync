@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -51,8 +52,10 @@ import androidx.compose.ui.input.pointer.consumeAllChanges
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.lebaillyapp.bluetoothmultiscreensync.R
 import com.lebaillyapp.bluetoothmultiscreensync.domain.model.config.ViewportConfig
 import com.lebaillyapp.bluetoothmultiscreensync.domain.model.config.VirtualPlaneConfig
 import com.lebaillyapp.bluetoothmultiscreensync.domain.model.virtualPlane.VirtualOrientation
@@ -70,16 +73,7 @@ data class LocalViewport(
     var isDragging: Boolean = false,
     var isOverlapping: Boolean = false,
     val isCurrentDevice: Boolean = false
-) {
-    fun bounds(widthPx: Float, heightPx: Float): Rect {
-        return Rect(
-            left = offsetX,
-            top = offsetY,
-            right = offsetX + widthPx,
-            bottom = offsetY + heightPx
-        )
-    }
-}
+)
 
 @SuppressLint("UnusedBoxWithConstraintsScope")
 @OptIn(ExperimentalMaterial3Api::class)
@@ -90,6 +84,7 @@ fun PlaygroundSettingsScreen(
     currentDeviceId: String = "Master",
     onValidate: (VirtualPlaneConfig) -> Unit = {}
 ) {
+    val vpOffsetStates = remember { mutableMapOf<String, MutableState<Float>>() }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -143,11 +138,16 @@ fun PlaygroundSettingsScreen(
                         planeWidthPx = coords.size.width.toFloat()
                         planeHeightPx = coords.size.height.toFloat()
                     }
-                    .background(Color(0xFF252531), shape = RoundedCornerShape(8.dp))
+                    .background(Color(0xFF0E0E15), shape = RoundedCornerShape(8.dp))
             ) {
+
                 viewports.forEach { vp ->
+
                     val offsetX = remember(vp.id) { mutableStateOf(vp.offsetX) }
                     val offsetY = remember(vp.id) { mutableStateOf(vp.offsetY) }
+
+                    vpOffsetStates[vp.id] = offsetY
+
                     var isPortrait by remember(vp.id) { mutableStateOf(vp.isPortrait) }
                     var isDragging by remember(vp.id) { mutableStateOf(false) }
                     var isOverlapping by remember(vp.id) { mutableStateOf(false) }
@@ -169,9 +169,9 @@ fun PlaygroundSettingsScreen(
 
                     // Couleur du viewport
                     val backgroundColor = when {
-                        vp.isCurrentDevice -> Color(0xFF4CAF50)
-                        isDragging -> Color(0xFF2979FF)
-                        else -> Color(0xFF546E7A)
+                        vp.isCurrentDevice -> Color(0xFF9564FF)
+                        isDragging -> Color(0xFF6C6A6A)
+                        else -> Color(0xFFFDB863)
                     }
 
                     // Détection de superposition
@@ -281,46 +281,75 @@ fun PlaygroundSettingsScreen(
                 }
 
                 Text(
-                    "Drag viewports to snap them together",
+                    "Drag on position the viewports,\n then press the button to auto-align them.",
                     color = Color.White.copy(alpha = 0.7f),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(16.dp)
                 )
             }
+
+            FloatingActionButton(
+                onClick = {
+                    autoAlignVertical(viewports)
+
+                    viewports.forEach { vp ->
+                        vpOffsetStates[vp.id]?.value = vp.offsetY
+                    }
+                },
+                containerColor = Color(0xFF25252F),
+                contentColor = Color.White,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(24.dp)
+                    .size(64.dp)
+            ) {
+                Icon(
+                    painter = painterResource(id = R.drawable.viewports_ico),
+                    contentDescription = "Auto-align viewports",
+                    modifier = Modifier.size(32.dp)
+                )
+            }
+
+
         }
     }
 }
 
-// Génération config finale
-private fun generateVirtualPlaneConfig(viewports: List<LocalViewport>): VirtualPlaneConfig {
-    if (viewports.isEmpty()) return VirtualPlaneConfig(planeWidth = 0f, planeHeight = 0f)
+fun autoAlignVertical(viewports: List<LocalViewport>) {
+    // Trier par offsetY d'abord pour traiter du haut vers le bas
+    val sorted = viewports.sortedBy { it.offsetY }
 
-    val viewportConfigs = viewports.map { vp ->
-        ViewportConfig(
-            deviceId = vp.id,
-            offsetX = vp.offsetX,
-            offsetY = vp.offsetY,
-            width = if (vp.isPortrait) 100f else 180f,
-            height = if (vp.isPortrait) 180f else 100f,
-            screenWidthPx = 1080,
-            screenHeightPx = 2400,
-            orientation = VirtualOrientation.NORMAL
-        )
+    for (current in sorted) {
+        val curW = if (current.isPortrait) 80f else 160f
+
+        val candidates = sorted.filter { other ->
+            if (other == current) return@filter false
+            val otherW = if (other.isPortrait) 80f else 160f
+            val otherH = if (other.isPortrait) 160f else 80f
+
+            val horizontallyOverlap = current.offsetX < other.offsetX + otherW &&
+                    current.offsetX + curW > other.offsetX
+
+            // Prendre ceux qui sont au-dessus (déjà traités)
+            horizontallyOverlap && (other.offsetY + otherH <= current.offsetY)
+        }
+
+        if (candidates.isNotEmpty()) {
+            val maxBottom = candidates.maxOf {
+                it.offsetY + if (it.isPortrait) 160f else 80f
+            }
+            current.offsetY = maxBottom
+        } else {
+            current.offsetY = 0f
+        }
     }
-
-    val minX = viewportConfigs.minOf { it.offsetX }
-    val minY = viewportConfigs.minOf { it.offsetY }
-    val maxX = viewportConfigs.maxOf { it.offsetX + it.width }
-    val maxY = viewportConfigs.maxOf { it.offsetY + it.height }
-
-    return VirtualPlaneConfig(
-        planeWidth = maxX - minX,
-        planeHeight = maxY - minY,
-        viewports = viewportConfigs
-    )
 }
+
+
+
 
 
 
