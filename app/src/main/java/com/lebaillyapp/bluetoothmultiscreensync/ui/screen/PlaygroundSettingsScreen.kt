@@ -84,7 +84,9 @@ fun PlaygroundSettingsScreen(
     currentDeviceId: String = "Master",
     onValidate: (VirtualPlaneConfig) -> Unit = {}
 ) {
-    val vpOffsetStates = remember { mutableMapOf<String, MutableState<Float>>() }
+    val vpOffsetXStates = remember { mutableMapOf<String, MutableState<Float>>() }
+    val vpOffsetYStates = remember { mutableMapOf<String, MutableState<Float>>() }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -146,7 +148,8 @@ fun PlaygroundSettingsScreen(
                     val offsetX = remember(vp.id) { mutableStateOf(vp.offsetX) }
                     val offsetY = remember(vp.id) { mutableStateOf(vp.offsetY) }
 
-                    vpOffsetStates[vp.id] = offsetY
+                    vpOffsetXStates[vp.id] = offsetX
+                    vpOffsetYStates[vp.id] = offsetY
 
                     var isPortrait by remember(vp.id) { mutableStateOf(vp.isPortrait) }
                     var isDragging by remember(vp.id) { mutableStateOf(false) }
@@ -293,10 +296,15 @@ fun PlaygroundSettingsScreen(
 
             FloatingActionButton(
                 onClick = {
+                    // Tu peux choisir vertical ou horizontal selon ton besoin
                     autoAlignVertical(viewports)
+                    // ou
+                     autoAlignHorizontal(viewports)
 
+                    // Mise à jour des states pour forcer la recomposition
                     viewports.forEach { vp ->
-                        vpOffsetStates[vp.id]?.value = vp.offsetY
+                        vpOffsetXStates[vp.id]?.value = vp.offsetX
+                        vpOffsetYStates[vp.id]?.value = vp.offsetY
                     }
                 },
                 containerColor = Color(0xFF25252F),
@@ -312,14 +320,12 @@ fun PlaygroundSettingsScreen(
                     modifier = Modifier.size(32.dp)
                 )
             }
-
-
         }
     }
 }
 
 fun autoAlignVertical(viewports: List<LocalViewport>) {
-    // Trier par offsetY d'abord pour traiter du haut vers le bas
+    // Trier par offsetY pour traiter du haut vers le bas
     val sorted = viewports.sortedBy { it.offsetY }
 
     for (current in sorted) {
@@ -348,7 +354,36 @@ fun autoAlignVertical(viewports: List<LocalViewport>) {
     }
 }
 
+fun autoAlignHorizontal(viewports: List<LocalViewport>) {
+    // Trier par offsetX pour traiter de gauche à droite
+    val sorted = viewports.sortedBy { it.offsetX }
 
+    for (current in sorted) {
+        val curH = if (current.isPortrait) 160f else 80f
+
+        val candidates = sorted.filter { other ->
+            if (other == current) return@filter false
+            val otherW = if (other.isPortrait) 80f else 160f
+            val otherH = if (other.isPortrait) 160f else 80f
+
+            // Chevauchement vertical
+            val verticallyOverlap = current.offsetY < other.offsetY + otherH &&
+                    current.offsetY + curH > other.offsetY
+
+            // Prendre ceux qui sont à gauche (déjà traités)
+            verticallyOverlap && (other.offsetX + otherW <= current.offsetX)
+        }
+
+        if (candidates.isNotEmpty()) {
+            val maxRight = candidates.maxOf {
+                it.offsetX + if (it.isPortrait) 80f else 160f
+            }
+            current.offsetX = maxRight
+        } else {
+            current.offsetX = 0f
+        }
+    }
+}
 
 
 
