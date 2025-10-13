@@ -26,6 +26,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.lebaillyapp.bluetoothmultiscreensync.R
+import com.lebaillyapp.bluetoothmultiscreensync.utils.PhoneViewportStylish
 import kotlinx.coroutines.launch
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -167,7 +168,7 @@ fun PlaygroundSettingsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(10.dp)
-                    .height(planeHeightDp)
+                    .fillMaxHeight(0.9f)
                     .onGloballyPositioned { coords ->
                         planeWidthPx = coords.size.width.toFloat()
                         planeHeightPx = coords.size.height.toFloat()
@@ -196,131 +197,67 @@ fun PlaygroundSettingsScreen(
                     val maxX = max(0f, planeWidthPx - viewportWidthPx)
                     val maxY = max(0f, planeHeightPx - viewportHeightPx)
 
-                    val clampedXPx = with(density) { offsetX.value.dp.toPx() }.coerceIn(0f, maxX)
-                    val clampedYPx = with(density) { offsetY.value.dp.toPx() }.coerceIn(0f, maxY)
+                    val clampedXPx = (offsetX.value * density.density).coerceIn(0f, maxX)
+                    val clampedYPx = (offsetY.value * density.density).coerceIn(0f, maxY)
 
                     val scale by animateFloatAsState(if (isDragging) 1.0f else 1f)
                     val elevation by animateFloatAsState(if (isDragging) 12f else 4f)
 
-                    // Compute background color depending on state
-                    val backgroundColor = when {
-                        vp.isCurrentDevice -> Color(0xFF9564FF)
-                        isDragging -> Color(0xFF6C6A6A)
-                        else -> Color(0xFFFDB863)
-                    }
+                    PhoneViewportStylish(
+                        id = vp.id,
+                        isCurrentDevice = vp.isCurrentDevice,
+                        isDragging = isDragging,
+                        isOverlapping = isOverlapping,
+                        isPortrait = isPortrait,
+                        widthDp = widthDp,
+                        heightDp = heightDp,
+                        offsetX = clampedXPx + (visualPaddingX[vp.id] ?: 0f) * density.density,
+                        offsetY = clampedYPx + (visualPaddingY[vp.id] ?: 0f) * density.density,
+                        visualPaddingX = visualPaddingX[vp.id] ?: 0f,
+                        visualPaddingY = visualPaddingY[vp.id] ?: 0f,
+                        scale = scale,
+                        elevation = elevation,
+                        onDragStart = {
+                            isDragging = true
+                            vp.isDragging = true
+                            visualPaddingX[vp.id] = 0f
+                            visualPaddingY[vp.id] = 0f
+                        },
+                        onDragEnd = {
+                            isDragging = false
+                            vp.isDragging = false
+                            vp.offsetX = offsetX.value
+                            vp.offsetY = offsetY.value
+                            recheckAllOverlaps()
+                            isOverlapping = vp.isOverlapping
+                        },
+                        onDrag = { dx, dy ->
+                            val dragXdp = dx / density.density
+                            val dragYdp = dy / density.density
+                            val maxXdp = maxX / density.density
+                            val maxYdp = maxY / density.density
 
-                    /**
-                     * Checks whether the current viewport overlaps any other viewport.
-                     */
-                    fun checkOverlap(): Boolean {
-                        val currentWidthPx = with(density) { (if (isPortrait) 80.dp else 160.dp).toPx() }
-                        val currentHeightPx = with(density) { (if (isPortrait) 160.dp else 80.dp).toPx() }
+                            val newX = (offsetX.value + dragXdp).coerceIn(0f, maxXdp)
+                            val newY = (offsetY.value + dragYdp).coerceIn(0f, maxYdp)
 
-                        val currentRect = Rect(
-                            offsetX.value * density.density,
-                            offsetY.value * density.density,
-                            offsetX.value * density.density + currentWidthPx,
-                            offsetY.value * density.density + currentHeightPx
-                        )
+                            offsetX.value = newX
+                            offsetY.value = newY
+                            vp.offsetX = newX
+                            vp.offsetY = newY
 
-                        return viewports.any { other ->
-                            if (other == vp) return@any false
-                            val otherWidthPx = with(density) { (if (other.isPortrait) 80.dp else 160.dp).toPx() }
-                            val otherHeightPx = with(density) { (if (other.isPortrait) 160.dp else 80.dp).toPx() }
-
-                            val otherRect = Rect(
-                                other.offsetX * density.density,
-                                other.offsetY * density.density,
-                                other.offsetX * density.density + otherWidthPx,
-                                other.offsetY * density.density + otherHeightPx
-                            )
-
-                            currentRect.overlaps(otherRect)
-                        }
-                    }
-
-                    // Render viewport box
-                    Box(
+                            recheckAllOverlaps()
+                            isOverlapping = vp.isOverlapping
+                        },
+                        onRotate = {
+                            isPortrait = !isPortrait
+                            vp.isPortrait = isPortrait
+                            recheckAllOverlaps()
+                            isOverlapping = vp.isOverlapping
+                        },
                         modifier = Modifier
-                            .offset {
-                                IntOffset(
-                                    ((clampedXPx + (visualPaddingX[vp.id] ?: 0f) * density.density).roundToInt()),
-                                    ((clampedYPx + (visualPaddingY[vp.id] ?: 0f) * density.density).roundToInt())
-                                )
-                            }
-                            .size(widthDp, heightDp)
-                            .graphicsLayer {
-                                scaleX = scale
-                                scaleY = scale
-                                shadowElevation = elevation
-                            }
-                            .pointerInput(vp.id, planeWidthPx, planeHeightPx, isPortrait) {
-                                detectDragGestures(
-                                    onDragStart = {
-                                        isDragging = true
-                                        vp.isDragging = true
-                                        visualPaddingX[vp.id] = 0f
-                                        visualPaddingY[vp.id] = 0f
-                                    },
-                                    onDragEnd = {
-                                        isDragging = false
-                                        vp.isDragging = false
-                                        vp.offsetX = offsetX.value
-                                        vp.offsetY = offsetY.value
-                                        recheckAllOverlaps()
-                                        isOverlapping = vp.isOverlapping
-                                    }
-                                ) { change, dragAmount ->
-                                    change.consume()
-                                    val dragXdp = dragAmount.x / density.density
-                                    val dragYdp = dragAmount.y / density.density
-                                    val maxXdp = (maxX / density.density)
-                                    val maxYdp = (maxY / density.density)
-
-                                    val newX = (offsetX.value + dragXdp).coerceIn(0f, maxXdp)
-                                    val newY = (offsetY.value + dragYdp).coerceIn(0f, maxYdp)
-
-                                    offsetX.value = newX
-                                    offsetY.value = newY
-                                    vp.offsetX = newX
-                                    vp.offsetY = newY
-
-                                    recheckAllOverlaps()
-                                    isOverlapping = vp.isOverlapping
-                                }
-                            }
-                            .background(backgroundColor, shape = RoundedCornerShape(6.dp))
-                            .then(
-                                if (isOverlapping)
-                                    Modifier.border(2.dp, Color.Red, RoundedCornerShape(6.dp))
-                                else Modifier
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(vp.id, color = Color.White, style = MaterialTheme.typography.bodySmall)
-                            if (vp.isCurrentDevice) {
-                                Text(
-                                    "(You)",
-                                    color = Color.White.copy(alpha = 0.7f),
-                                    style = MaterialTheme.typography.labelSmall
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(6.dp))
-                            IconButton(
-                                onClick = {
-                                    isPortrait = !isPortrait
-                                    vp.isPortrait = isPortrait
-                                    recheckAllOverlaps()
-                                    isOverlapping = vp.isOverlapping
-                                },
-                                modifier = Modifier.size(28.dp)
-                            ) {
-                                Icon(Icons.Default.Refresh, contentDescription = "Rotate", tint = Color.White)
-                            }
-                        }
-                    }
+                    )
                 }
+
 
                 // Instructions
                 Text(
