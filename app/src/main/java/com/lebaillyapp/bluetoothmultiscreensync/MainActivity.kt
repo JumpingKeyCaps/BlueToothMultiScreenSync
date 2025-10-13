@@ -148,11 +148,7 @@ class MainActivity : ComponentActivity() {
                     isMaster = true,
                     currentDeviceId = "Master",
                     onValidate = { config ->
-                        println("VirtualPlane: ${config.planeWidth}x${config.planeHeight}")
-                        config.viewports.forEach { vp ->
-                            println("${vp.deviceId}: offset=(${vp.offsetX}, ${vp.offsetY})")
-                        }
-                        // TODO: Broadcast la config via Bluetooth
+
                     }
                 )
 
