@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.lebaillyapp.bluetoothmultiscreensync.R
 import com.lebaillyapp.bluetoothmultiscreensync.utils.PhoneViewportStylish
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -83,7 +84,8 @@ fun PlaygroundSettingsScreen(
     val visualPaddingX = remember { mutableStateMapOf<String, Float>() }
     val visualPaddingY = remember { mutableStateMapOf<String, Float>() }
 
-
+    // Stocke la Job de la coroutine d'animation globale
+    var alignmentJob by remember { mutableStateOf<Job?>(null) }
 
 
     Scaffold(
@@ -252,6 +254,21 @@ fun PlaygroundSettingsScreen(
                         scale = scale,
                         elevation = elevation,
                         onDragStart = {
+
+                            alignmentJob?.cancel()
+
+                            // Réinitialiser le padding visuel pour que la vue bouge normalement
+                            visualPaddingX[vp.id] = 0f
+                            visualPaddingY[vp.id] = 0f
+
+                            // Met à jour les offsets réels du viewport (vp.offsetX/Y) avec la position actuelle
+                            // affichée par l'état Compose, pour que le drag reprenne là où l'animation s'est arrêtée.
+                            vp.offsetX = offsetX.value
+                            vp.offsetY = offsetY.value
+
+                            isDragging = true
+                            vp.isDragging = true
+
                             isDragging = true
                             vp.isDragging = true
                             visualPaddingX[vp.id] = 0f
@@ -333,7 +350,7 @@ fun PlaygroundSettingsScreen(
                     )
 
                     // Animate each viewport
-                    scope.launch {
+                    alignmentJob = scope.launch {
                         viewports.forEach { vp ->
                             val (oldX, oldY) = oldPositions[vp.id] ?: return@forEach
                             val (targetPadX, targetPadY) = paddingResults[vp.id] ?: return@forEach // Récupération du padding calculé
