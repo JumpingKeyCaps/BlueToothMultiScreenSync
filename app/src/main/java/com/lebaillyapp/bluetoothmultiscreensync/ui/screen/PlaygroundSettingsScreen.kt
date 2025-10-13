@@ -83,6 +83,9 @@ fun PlaygroundSettingsScreen(
     val visualPaddingX = remember { mutableStateMapOf<String, Float>() }
     val visualPaddingY = remember { mutableStateMapOf<String, Float>() }
 
+
+
+
     Scaffold(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
@@ -121,13 +124,15 @@ fun PlaygroundSettingsScreen(
             val viewports = remember {
                 mutableStateListOf(
                     LocalViewport("Master", 0f, 0f, isCurrentDevice = currentDeviceId == "Master"),
-                    LocalViewport("Device A", 100f, 0f, isCurrentDevice = currentDeviceId == "Device A"),
-                    LocalViewport("Device B", 200f, 0f, isCurrentDevice = currentDeviceId == "Device B")
+                    LocalViewport("Xiamomi", 100f, 0f, isCurrentDevice = currentDeviceId == "Device A"),
+                    LocalViewport("Samsung", 200f, 0f, isCurrentDevice = currentDeviceId == "Device B")
                 )
             }
 
             var planeWidthPx by remember { mutableStateOf(0f) }
             var planeHeightPx by remember { mutableStateOf(0f) }
+
+
 
             /**
              * Rechecks all viewports for overlaps.
@@ -175,6 +180,35 @@ fun PlaygroundSettingsScreen(
                     }
                     .background(MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(8.dp))
             ) {
+
+
+                // default positionning.
+                LaunchedEffect(planeWidthPx, planeHeightPx) {
+                    if (planeWidthPx > 0f && planeHeightPx > 0f) {
+
+                        val planeWidthDp = planeWidthPx / density.density
+                        val planeHeightDp = planeHeightPx / density.density
+
+                        // APPEL DE LA NOUVELLE MÉTHODE
+                        val paddingResults = performAlignmentAndCalculatePadding(
+                            viewports,
+                            planeWidthDp,
+                            planeHeightDp
+                        )
+
+                        // Met à jour les états Compose avec les résultats
+                        viewports.forEach { vp ->
+                            val (targetPadX, targetPadY) = paddingResults[vp.id] ?: (0f to 0f)
+
+                            vpOffsetXStates[vp.id]?.value = vp.offsetX + targetPadX
+                            vpOffsetYStates[vp.id]?.value = vp.offsetY + targetPadY
+                            visualPaddingX[vp.id] = targetPadX
+                            visualPaddingY[vp.id] = targetPadY
+                        }
+                    }
+                }
+
+
 
                 // Render each viewport
                 viewports.forEach { vp ->
@@ -282,46 +316,31 @@ fun PlaygroundSettingsScreen(
                     val hasOverlap = viewports.any { it.isOverlapping }
 
                     if (hasOverlap) {
-                        scope.launch {
-                            snackbarHostState.showSnackbar("Cannot align: viewports are overlapping!")
-                        }
+                        //  (gestion de l'overlap)
                         return@FloatingActionButton
                     }
 
                     val oldPositions = viewports.associate { it.id to (it.offsetX to it.offsetY) }
 
-                    // Perform alignment logic
-                    autoAlignVertical(viewports)
-                    autoAlignHorizontal(viewports)
-                    centerViewports(
+
+                    val planeWidthDp = planeWidthPx / density.density
+                    val planeHeightDp = planeHeightPx / density.density
+
+                    val paddingResults = performAlignmentAndCalculatePadding(
                         viewports,
-                        planeWidthPx / density.density,
-                        planeHeightPx / density.density
+                        planeWidthDp,
+                        planeHeightDp
                     )
 
                     // Animate each viewport
                     scope.launch {
-                        val paddingDp = 4f
-
                         viewports.forEach { vp ->
                             val (oldX, oldY) = oldPositions[vp.id] ?: return@forEach
+                            val (targetPadX, targetPadY) = paddingResults[vp.id] ?: return@forEach // Récupération du padding calculé
 
-                            // Compute target padding based on nearby viewports
-                            val vpAbove = viewports.count { other ->
-                                other != vp &&
-                                        other.offsetY + (if (other.isPortrait) 160f else 80f) <= vp.offsetY &&
-                                        vp.offsetX < other.offsetX + (if (other.isPortrait) 80f else 160f) &&
-                                        vp.offsetX + (if (vp.isPortrait) 80f else 160f) > other.offsetX
-                            }
-                            val vpLeft = viewports.count { other ->
-                                other != vp &&
-                                        other.offsetX + (if (other.isPortrait) 80f else 160f) <= vp.offsetX &&
-                                        vp.offsetY < other.offsetY + (if (other.isPortrait) 160f else 80f) &&
-                                        vp.offsetY + (if (vp.isPortrait) 160f else 80f) > other.offsetY
-                            }
+                            // Suppression de la logique de calcul du padding redondante ici !
+                            // ...
 
-                            val targetPadX = vpLeft * paddingDp
-                            val targetPadY = vpAbove * paddingDp
                             val oldPadX = visualPaddingX[vp.id] ?: 0f
                             val oldPadY = visualPaddingY[vp.id] ?: 0f
 
@@ -335,25 +354,25 @@ fun PlaygroundSettingsScreen(
                                 // Animate X/Y and padding using EaseOutElastic
                                 launch {
                                     animX.animateTo(
-                                        targetValue = vp.offsetX,
+                                        targetValue = vp.offsetX, // vp.offsetX est la position *finale* sans padding
                                         animationSpec = tween(duration, easing = androidx.compose.animation.core.EaseOutElastic)
                                     )
                                 }
                                 launch {
                                     animY.animateTo(
-                                        targetValue = vp.offsetY,
+                                        targetValue = vp.offsetY, // vp.offsetY est la position *finale* sans padding
                                         animationSpec = tween(duration, easing = androidx.compose.animation.core.EaseOutElastic)
                                     )
                                 }
                                 launch {
                                     animPadX.animateTo(
-                                        targetValue = targetPadX,
+                                        targetValue = targetPadX, // targetPadX est le padding final calculé
                                         animationSpec = tween(duration, easing = androidx.compose.animation.core.EaseOutElastic)
                                     )
                                 }
                                 launch {
                                     animPadY.animateTo(
-                                        targetValue = targetPadY,
+                                        targetValue = targetPadY, // targetPadY est le padding final calculé
                                         animationSpec = tween(duration, easing = androidx.compose.animation.core.EaseOutElastic)
                                     )
                                 }
@@ -367,7 +386,8 @@ fun PlaygroundSettingsScreen(
                                     kotlinx.coroutines.delay(16)
                                 }
 
-                                // Final snap
+                                // Final snap (ce code peut maintenant être retiré si l'animation dure exactement 1500ms,
+                                // mais le conserver assure une cohérence parfaite à la fin)
                                 vpOffsetXStates[vp.id]?.value = vp.offsetX + targetPadX
                                 vpOffsetYStates[vp.id]?.value = vp.offsetY + targetPadY
                                 visualPaddingX[vp.id] = targetPadX
@@ -392,6 +412,59 @@ fun PlaygroundSettingsScreen(
         }
     }
 }
+
+
+/**
+ * Effectue l'alignement (vertical, horizontal, centrage) des viewports,
+ * et calcule le padding visuel nécessaire pour le résultat final.
+ *
+ * @param viewports Liste des viewports (leurs offsets sont modifiés en place).
+ * @param planeWidth Largeur du plan en DP.
+ * @param planeHeight Hauteur du plan en DP.
+ * @return Une Map associant l'ID du viewport à sa paire (paddingX, paddingY) calculée.
+ */
+fun performAlignmentAndCalculatePadding(
+    viewports: List<LocalViewport>,
+    planeWidth: Float,
+    planeHeight: Float
+): Map<String, Pair<Float, Float>> {
+    //  Applique l'alignement et le centrage pour définir les positions finales (vp.offsetX/Y)
+    autoAlignVertical(viewports)
+    autoAlignHorizontal(viewports)
+    centerViewports(
+        viewports,
+        planeWidth,
+        planeHeight
+    )
+
+    //  Calcule et retourne le padding visuel
+    val paddingDp = 4f
+    val paddingResults = mutableMapOf<String, Pair<Float, Float>>()
+
+    viewports.forEach { vp ->
+        // Calcule le nombre de viewports au-dessus et à gauche pour le padding
+        val vpAbove = viewports.count { other ->
+            other != vp &&
+                    other.offsetY + (if (other.isPortrait) 160f else 80f) <= vp.offsetY &&
+                    vp.offsetX < other.offsetX + (if (other.isPortrait) 80f else 160f) &&
+                    vp.offsetX + (if (vp.isPortrait) 80f else 160f) > other.offsetX
+        }
+        val vpLeft = viewports.count { other ->
+            other != vp &&
+                    other.offsetX + (if (other.isPortrait) 80f else 160f) <= vp.offsetX &&
+                    vp.offsetY < other.offsetY + (if (other.isPortrait) 160f else 80f) &&
+                    vp.offsetY + (if (vp.isPortrait) 160f else 80f) > other.offsetY
+        }
+
+        val targetPadX = vpLeft * paddingDp
+        val targetPadY = vpAbove * paddingDp
+
+        paddingResults[vp.id] = Pair(targetPadX, targetPadY)
+    }
+
+    return paddingResults
+}
+
 
 /**
  * Auto-aligns viewports vertically.
