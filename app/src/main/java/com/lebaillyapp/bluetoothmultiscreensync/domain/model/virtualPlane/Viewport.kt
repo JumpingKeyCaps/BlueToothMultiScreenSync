@@ -1,56 +1,71 @@
 package com.lebaillyapp.bluetoothmultiscreensync.domain.model.virtualPlane
 
+import kotlin.math.min
+
 /**
  * # Viewport
- * Data class representing a viewport assigned to a device within the virtual plane system.
  *
- * A viewport defines the portion of the global virtual canvas that a specific device
- * is responsible for rendering. It maps a rectangular region in virtual units (VU)
- * to the physical screen dimensions of the device.
+ * Represents the portion of the global **virtual plane** assigned to a specific device.
+ *
+ * Each device receives a `Viewport` describing which part of the virtual canvas it renders,
+ * and how virtual coordinates (in **VU**) map to its own display space (in **DP**).
+ *
+ * ---
  *
  * ## Coordinate Systems
- * - **Virtual Units (VU)**: Abstract coordinate system shared across all devices
- * - **Screen Pixels (SC)**: Physical pixel coordinates of the device screen
+ * - **VU (Virtual Units)** → Global abstract coordinate space, identical for all devices.
+ * - **DP (Density-independent Pixels)** → Logical Android display units ensuring the same
+ *   physical size on screens of different densities.
+ * - **PX (Physical Pixels)** → Device-dependent pixel grid used internally by Android’s renderer.
+ *
+ * ---
  *
  * ## Scaling Strategy
- * The viewport calculates a uniform scale factor to map virtual units to screen pixels
- * while preserving aspect ratio. This ensures that objects appear at the same physical
- * size across devices with different screen densities and resolutions.
+ *
+ * The viewport defines a **uniform scale factor** that converts Virtual Units → DP.
+ * This ensures consistent *physical size* across devices, regardless of screen DPI.
+ *
+ * The conversion is based on the device’s *logical density* (dp per inch), so that:
+ *
+ * ```
+ * scaleDpPerVu = min(screenWidthDp / widthVu, screenHeightDp / heightVu)
+ * ```
+ *
+ * Then each device’s rendering pipeline (Compose or Canvas) handles the
+ * final DP → PX conversion automatically.
+ *
+ * ---
+ *
+ * ## Master–Slave Usage
+ *
+ * - The **Master** defines all `Viewport` areas in Virtual Units (VU).
+ * - Each **Slave** sends its screen size in DP to the Master during handshake.
+ * - The Master computes and assigns a consistent scale (`Dp/VU`) for every device.
+ *
+ * ---
  *
  * ## Virtual Orientation
- * The master device can assign a logical orientation to each viewport, allowing devices
- * to be positioned in any configuration (rotated, flipped) without requiring physical
- * device rotation.
  *
- * @property deviceId Unique identifier of the device (typically Bluetooth MAC address)
- * @property offsetX X position of the viewport's top-left corner on the virtual plane (in VU)
- * @property offsetY Y position of the viewport's top-left corner on the virtual plane (in VU)
+ * A `VirtualOrientation` may be applied by the Master to position the device
+ * logically in the multi-screen layout, without requiring physical rotation.
+ *
+ * ---
+ *
+ * @property deviceId Unique identifier of the device (e.g. Bluetooth MAC address)
+ * @property offsetX X position of the viewport’s top-left corner on the virtual plane (in VU)
+ * @property offsetY Y position of the viewport’s top-left corner on the virtual plane (in VU)
  * @property width Width of the viewport in virtual units
  * @property height Height of the viewport in virtual units
- * @property orientation Virtual orientation applied to this viewport by the master device
- * @property screenWidthPx Physical screen width of the device in pixels
- * @property screenHeightPx Physical screen height of the device in pixels
+ * @property orientation Logical orientation assigned by the Master
+ * @property screenWidthDp Device screen width in density-independent pixels (dp)
+ * @property screenHeightDp Device screen height in density-independent pixels (dp)
+ * @property density Device pixel density (`dpi / 160f`)
  *
- * @property scale Uniform scale factor (pixels per virtual unit) calculated as the minimum
- *                 of horizontal and vertical scale ratios to prevent distortion.
- *                 Formula: `min(screenWidthPx / width, screenHeightPx / height)`
+ * @property scaleDpPerVu Uniform scaling factor (dp per virtual unit),
+ *                        ensuring equal physical size across all screens.
  *
- * ## Example
- * ```kotlin
- * val viewport = Viewport(
- *     deviceId = "00:11:22:33:44:55",
- *     offsetX = 0f,
- *     offsetY = 0f,
- *     width = 1000f,
- *     height = 2000f,
- *     orientation = VirtualOrientation.NORMAL,
- *     screenWidthPx = 1080,
- *     screenHeightPx = 2400
- * )
+ * ---
  *
- * // Scale factor: min(1080/1000, 2400/2000) = min(1.08, 1.2) = 1.08
- * println(viewport.scale) // 1.08
- * ```
  *
  * @see VirtualOrientation
  */
@@ -61,25 +76,39 @@ data class Viewport(
     val width: Float,
     val height: Float,
     val orientation: VirtualOrientation = VirtualOrientation.NORMAL,
-    val screenWidthPx: Int,
-    val screenHeightPx: Int
+    val screenWidthDp: Float,
+    val screenHeightDp: Float,
+    val density: Float
 ) {
+
     /**
-     * Uniform scale factor for converting virtual units to screen pixels.
+     * Uniform scale factor (in dp per VU).
      *
-     * This scale factor ensures that:
-     * - Objects maintain consistent physical size across devices
-     * - Aspect ratio is preserved (no distortion)
-     * - The entire viewport fits within the screen bounds
+     * Ensures that all devices display objects at the same *physical size*
+     * regardless of their screen density (DPI) or pixel resolution.
      *
-     * The scale is calculated as the minimum ratio between screen dimensions
-     * and viewport dimensions to prevent any overflow or stretching.
+     * Formula:
+     * ```
+     * scaleDpPerVu = min(screenWidthDp / widthVu, screenHeightDp / heightVu)
+     * ```
      *
-     * @return Pixels per virtual unit (px/VU)
+     * @return Scale factor in dp/VU
      */
-    val scale: Float
-        get() = minOf(
-            screenWidthPx / width,
-            screenHeightPx / height
+    val scaleDpPerVu: Float
+        get() = min(
+            screenWidthDp / width,
+            screenHeightDp / height
         )
+
+    /**
+     * Converts a value from Virtual Units (VU) to Density-independent Pixels (DP).
+     * Use this when rendering elements defined in the virtual coordinate space.
+     */
+    fun vuToDp(valueVu: Float): Float = valueVu * scaleDpPerVu
+
+    /**
+     * Converts a value from Virtual Units (VU) directly to physical pixels (PX).
+     * This can be useful for low-level rendering (e.g. shaders, Canvas).
+     */
+    fun vuToPx(valueVu: Float): Float = valueVu * scaleDpPerVu * density
 }
