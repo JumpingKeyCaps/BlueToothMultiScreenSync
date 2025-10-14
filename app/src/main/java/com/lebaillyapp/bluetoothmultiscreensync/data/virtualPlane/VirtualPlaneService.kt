@@ -16,10 +16,12 @@ import com.lebaillyapp.bluetoothmultiscreensync.domain.model.virtualPlane.Virtua
  * Stores the global plane size, the viewports assigned to devices,
  * and exposes observable flows so ViewModels can react to changes.
  *
- * Coordinate transformations take into account the virtual orientation
- * defined by the master for each device.
+ * Coordinate transformations now respect the **global scale factor (DP/VU)**
+ * to ensure consistent physical size across devices.
  */
 class VirtualPlaneService {
+
+    // --- GLOBAL PLANE STATE ---
 
     /** Width of the global virtual plane in virtual units */
     private val _planeWidth = MutableStateFlow(0f)
@@ -29,6 +31,15 @@ class VirtualPlaneService {
     private val _planeHeight = MutableStateFlow(0f)
     val planeHeight: StateFlow<Float> = _planeHeight.asStateFlow()
 
+    /**
+     * The global scale factor (Density-Independent Pixels per Virtual Unit).
+     * This value is determined by the Master and is the contract for all devices,
+     * ensuring consistent physical sizing regardless of DPI.
+     * Modifying this value is how the Master implements global Zoom/Dezoom.
+     */
+    private val _scaleDpPerVu = MutableStateFlow(0f)
+    val scaleDpPerVu: StateFlow<Float> = _scaleDpPerVu.asStateFlow()
+
     /** Current state of the virtual plane system */
     private val _planeState = MutableStateFlow(PlaneState.IDLE)
     val planeState: StateFlow<PlaneState> = _planeState.asStateFlow()
@@ -37,17 +48,22 @@ class VirtualPlaneService {
     private val _viewports = MutableStateFlow<Map<String, Viewport>>(emptyMap())
     val viewports: StateFlow<Map<String, Viewport>> = _viewports.asStateFlow()
 
+    // --- INITIALIZATION AND CONFIGURATION ---
+
     /**
-     * Initializes the global virtual plane size.
+     * Initializes the global virtual plane size and sets the global scale factor.
      *
      * @param width Width of the plane in virtual units
      * @param height Height of the plane in virtual units
+     * @param scaleDpPerVu The global scale factor (DP/VU) determined by the Master.
      */
-    fun initPlane(width: Float, height: Float) {
+    fun initPlane(width: Float, height: Float, scaleDpPerVu: Float) {
         require(width > 0 && height > 0) { "Plane dimensions must be positive" }
+        require(scaleDpPerVu > 0) { "Scale factor must be positive" }
 
         _planeWidth.value = width
         _planeHeight.value = height
+        _scaleDpPerVu.value = scaleDpPerVu
         _planeState.value = PlaneState.READY
     }
 
@@ -61,13 +77,17 @@ class VirtualPlaneService {
     /**
      * Defines or adds a viewport for a device.
      *
+     * NOTE: This function now requires DP dimensions and density, which are part of the
+     * corrected Viewport model.
+     *
      * @param deviceId Device identifier
-     * @param offsetX X position on the virtual plane
-     * @param offsetY Y position on the virtual plane
+     * @param offsetX X position on the virtual plane (VU)
+     * @param offsetY Y position on the virtual plane (VU)
      * @param width Width of the viewport in virtual units
      * @param height Height of the viewport in virtual units
-     * @param screenWidthPx Physical screen width in pixels
-     * @param screenHeightPx Physical screen height in pixels
+     * @param screenWidthDp Screen width in Density-Independent Pixels (DP)
+     * @param screenHeightDp Screen height in Density-Independent Pixels (DP)
+     * @param density Device pixel density (Px/DP ratio)
      * @param orientation Virtual orientation applied (default NORMAL)
      */
     fun defineViewport(
@@ -76,13 +96,15 @@ class VirtualPlaneService {
         offsetY: Float,
         width: Float,
         height: Float,
-        screenWidthPx: Int,
-        screenHeightPx: Int,
+        screenWidthDp: Float,
+        screenHeightDp: Float,
+        density: Float,
         orientation: VirtualOrientation = VirtualOrientation.NORMAL
     ) {
-        // Validation
+        // Validation (using DP and Density from the new Viewport model)
         require(width > 0 && height > 0) { "Viewport dimensions must be positive" }
-        require(screenWidthPx > 0 && screenHeightPx > 0) { "Screen dimensions must be positive" }
+        require(screenWidthDp > 0 && screenHeightDp > 0) { "Screen DP dimensions must be positive" }
+        require(density > 0) { "Density must be positive" }
         require(offsetX >= 0 && offsetY >= 0) { "Viewport offset must be >= 0" }
 
         // Check bounds only if plane is initialized
@@ -97,10 +119,9 @@ class VirtualPlaneService {
 
         val vp = Viewport(
             deviceId, offsetX, offsetY, width, height,
-            orientation, screenWidthPx, screenHeightPx
+            orientation, screenWidthDp, screenHeightDp, density
         )
 
-        // Thread-safe update
         _viewports.update { currentMap ->
             currentMap + (deviceId to vp)
         }
@@ -109,16 +130,16 @@ class VirtualPlaneService {
     /**
      * Updates an existing viewport partially.
      *
-     * Allows updating only specific properties of the viewport
-     * without overwriting the others.
+     * NOTE: Updated to reflect the new Viewport model parameters.
      *
      * @param deviceId Device identifier
      * @param offsetX New X position (optional)
      * @param offsetY New Y position (optional)
      * @param width New width (optional)
      * @param height New height (optional)
-     * @param screenWidthPx New physical screen width (optional)
-     * @param screenHeightPx New physical screen height (optional)
+     * @param screenWidthDp New screen width in DP (optional)
+     * @param screenHeightDp New screen height in DP (optional)
+     * @param density New density (optional)
      * @param orientation New virtual orientation (optional)
      */
     fun updateViewport(
@@ -127,8 +148,9 @@ class VirtualPlaneService {
         offsetY: Float? = null,
         width: Float? = null,
         height: Float? = null,
-        screenWidthPx: Int? = null,
-        screenHeightPx: Int? = null,
+        screenWidthDp: Float? = null,
+        screenHeightDp: Float? = null,
+        density: Float? = null,
         orientation: VirtualOrientation? = null
     ) {
         _viewports.update { currentMap ->
@@ -139,8 +161,9 @@ class VirtualPlaneService {
                 offsetY = offsetY ?: current.offsetY,
                 width = width ?: current.width,
                 height = height ?: current.height,
-                screenWidthPx = screenWidthPx ?: current.screenWidthPx,
-                screenHeightPx = screenHeightPx ?: current.screenHeightPx,
+                screenWidthDp = screenWidthDp ?: current.screenWidthDp,
+                screenHeightDp = screenHeightDp ?: current.screenHeightDp,
+                density = density ?: current.density,
                 orientation = orientation ?: current.orientation
             )
 
@@ -156,6 +179,8 @@ class VirtualPlaneService {
      */
     fun getViewport(deviceId: String): Viewport? = _viewports.value[deviceId]
 
+    // --- COORDINATE TRANSFORMATIONS (VU <-> Local) ---
+
     /**
      * Converts global virtual coordinates (VU) into local coordinates (LD)
      * within the device viewport, taking into account virtual orientation.
@@ -163,13 +188,14 @@ class VirtualPlaneService {
      * @param deviceId Device identifier
      * @param x Global X coordinate on the virtual plane
      * @param y Global Y coordinate on the virtual plane
-     * @return Offset corresponding to local coordinates for the viewport
+     * @return Offset corresponding to local coordinates for the viewport (still in VU)
      */
     fun virtualToLocal(deviceId: String, x: Float, y: Float): Offset {
         val vp = _viewports.value[deviceId] ?: return Offset(x, y)
         val relativeX = x - vp.offsetX
         val relativeY = y - vp.offsetY
 
+        // Note: The logic below is correct as it operates on VU relative to the viewport.
         return when (vp.orientation) {
             VirtualOrientation.NORMAL -> Offset(relativeX, relativeY)
             VirtualOrientation.ROTATED_90 -> Offset(vp.height - relativeY, relativeX)
@@ -184,11 +210,10 @@ class VirtualPlaneService {
      * Converts local device coordinates (LD) into global virtual coordinates (VU).
      *
      * This is the inverse transformation of virtualToLocal().
-     * Used when a device detects touch input and needs to report it in virtual coordinates.
      *
      * @param deviceId Device identifier
-     * @param localX X coordinate in local viewport space
-     * @param localY Y coordinate in local viewport space
+     * @param localX X coordinate in local viewport space (in VU)
+     * @param localY Y coordinate in local viewport space (in VU)
      * @return Offset corresponding to global virtual coordinates
      */
     fun localToVirtual(deviceId: String, localX: Float, localY: Float): Offset {
@@ -210,11 +235,13 @@ class VirtualPlaneService {
         )
     }
 
+    // --- COORDINATE TRANSFORMATIONS (VU <-> Screen) ---
+
     /**
      * Converts virtual coordinates (VU) into screen pixel coordinates (SC).
      *
-     * This applies both the viewport transformation AND the pixel scaling.
-     * Use this for actual rendering on screen.
+     * This applies the viewport transformation, the global DP/VU scale, and the local Px/DP density.
+     * This is the essential method for actual rendering on screen, guaranteeing physical size consistency.
      *
      * @param deviceId Device identifier
      * @param x Global X coordinate on the virtual plane
@@ -223,11 +250,17 @@ class VirtualPlaneService {
      */
     fun virtualToScreen(deviceId: String, x: Float, y: Float): Offset {
         val vp = _viewports.value[deviceId] ?: return Offset.Zero
-        val local = virtualToLocal(deviceId, x, y)
+        val localVu = virtualToLocal(deviceId, x, y)
+        val globalScale = _scaleDpPerVu.value
 
+        // 1. VU -> DP (using global scale)
+        val localDpX = localVu.x * globalScale
+        val localDpY = localVu.y * globalScale
+
+        // 2. DP -> Px (using local device density Px/DP)
         return Offset(
-            x = local.x * vp.scale,
-            y = local.y * vp.scale
+            x = localDpX * vp.density,
+            y = localDpY * vp.density
         )
     }
 
@@ -244,13 +277,18 @@ class VirtualPlaneService {
      */
     fun screenToVirtual(deviceId: String, screenX: Float, screenY: Float): Offset {
         val vp = _viewports.value[deviceId] ?: return Offset(screenX, screenY)
+        val globalScale = _scaleDpPerVu.value
 
-        // First, unscale from screen pixels to local coordinates
-        val localX = screenX / vp.scale
-        val localY = screenY / vp.scale
+        // 1. Px -> DP (using local device density DP/Px)
+        val localDpX = screenX / vp.density
+        val localDpY = screenY / vp.density
+
+        // 2. DP -> VU (using inverse global scale)
+        val localVuX = localDpX / globalScale
+        val localVuY = localDpY / globalScale
 
         // Then convert from local to virtual
-        return localToVirtual(deviceId, localX, localY)
+        return localToVirtual(deviceId, localVuX, localVuY)
     }
 
     /**
@@ -268,6 +306,7 @@ class VirtualPlaneService {
         _viewports.value = emptyMap()
         _planeWidth.value = 0f
         _planeHeight.value = 0f
+        _scaleDpPerVu.value = 0f
         _planeState.value = PlaneState.IDLE
     }
 }
