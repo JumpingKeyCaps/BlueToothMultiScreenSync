@@ -1,44 +1,39 @@
-package com.lebaillyapp.bluetoothmultiscreensync.domain.model.virtualPlane
+package com.lebaillyapp.bluetoothmultiscreensync.data.transfer // NOTE: J'ai déplacé le paquet à 'data.transfer' car c'est un DTO réseau, pas un modèle de domaine pur.
 
+import com.lebaillyapp.bluetoothmultiscreensync.domain.model.virtualPlane.Viewport
+import com.lebaillyapp.bluetoothmultiscreensync.domain.model.virtualPlane.VirtualOrientation
 import kotlinx.serialization.Serializable
 
 /**
  * # ViewportPacket
- * Serializable data transfer object representing a viewport configuration for network transmission.
+ * Serializable data transfer object (DTO) representing a viewport configuration for network transmission.
  *
  * This packet is used for Bluetooth communication between the master device and slave devices
  * to synchronize viewport configurations. It contains all necessary information to define
- * how a specific device should map its portion of the virtual canvas.
+ * how a specific device should map its portion of the virtual canvas to its physical screen.
+ *
+ * ## Scaling Context
+ * The inclusion of screen dimensions in **Density-Independent Pixels (DP)** and the device's
+ * **density** ensures that the receiving Slave device can correctly establish the local
+ * scaling (VU ↔ DP ↔ Px) required for consistent **physical sizing** of objects across all screens.
  *
  * ## Usage Flow
- * 1. **Master Device**: Creates `ViewportPacket` instances for each connected slave
- * 2. **Serialization**: Packet is serialized (JSON or binary) for Bluetooth transmission
- * 3. **Transmission**: Sent via Bluetooth Classic SPP (RFCOMM) channel
- * 4. **Slave Device**: Receives and deserializes the packet
- * 5. **Conversion**: Calls `toViewport()` to create a domain model instance
+ * 1. **Master Device**: Creates and serializes `ViewportPacket` instances.
+ * 2. **Transmission**: Sent via Bluetooth.
+ * 3. **Slave Device**: Receives, deserializes the packet, and calls `toViewport()` to build
+ * the domain model used by the local [VirtualPlaneService].
  *
- * ## Protocol Context
- * This packet is typically sent:
- * - During initial handshake after Bluetooth pairing
- * - When the master reconfigures the virtual plane layout
- * - When a device's screen dimensions change (e.g., rotation, multi-window)
- *
- * The master device is the single source of truth for all viewport assignments,
- * ensuring consistent coordinate mapping across the entire virtual plane.
- *
- * @property deviceId Unique identifier of the target device (typically Bluetooth MAC address)
+ * @property deviceId Unique identifier of the target device (e.g., Bluetooth MAC address)
  * @property offsetX X position of the viewport's top-left corner on the virtual plane (in VU)
  * @property offsetY Y position of the viewport's top-left corner on the virtual plane (in VU)
  * @property width Width of the viewport in virtual units
  * @property height Height of the viewport in virtual units
  * @property orientation Virtual orientation assigned by the master device
- * @property screenWidthPx Physical screen width of the device in pixels
- * @property screenHeightPx Physical screen height of the device in pixels
- *
+ * @property screenWidthDp Device screen width in **Density-Independent Pixels (DP)** (Float)
+ * @property screenHeightDp Device screen height in **Density-Independent Pixels (DP)** (Float)
+ * @property density Device pixel density ratio (Px/DP)
  *
  * @see Viewport The domain model representation used internally by the app
- * @see VirtualOrientation Available orientation configurations
- * @see com.lebaillyapp.bluetoothmultiscreensync.data.virtualPlane.VirtualPlaneService
  */
 @Serializable
 data class ViewportPacket(
@@ -48,23 +43,18 @@ data class ViewportPacket(
     val width: Float,
     val height: Float,
     val orientation: VirtualOrientation,
-    val screenWidthPx: Int,
-    val screenHeightPx: Int
+    val screenWidthDp: Float, // Correction: Remplacé Int Px par Float DP
+    val screenHeightDp: Float, // Correction: Remplacé Int Px par Float DP
+    val density: Float // Correction: Ajouté la densité
 ) {
     /**
      * Converts this network packet into a domain model [Viewport] instance.
      *
-     * This conversion is typically performed by slave devices after receiving
-     * viewport configuration from the master device via Bluetooth.
-     *
-     * The resulting [Viewport] object can be used to initialize the local
-     * [VirtualPlaneService] and establish the device's coordinate mapping.
-     *
-     * @return A [Viewport] instance with identical configuration values
-     *
+     * @return A [Viewport] instance with all configuration values, including DP dimensions
+     * and density required for local scale calculations.
      */
     fun toViewport() = Viewport(
         deviceId, offsetX, offsetY, width, height,
-        orientation, screenWidthPx, screenHeightPx
+        orientation, screenWidthDp, screenHeightDp, density
     )
 }
