@@ -104,7 +104,7 @@ class MainActivity : ComponentActivity() {
                 )
 
                 //todo -- real flow -  ------------------------
-                /**
+
                 AppNavGraph(
                     navController = navController,
                     setupViewModel = setupViewModel,
@@ -112,45 +112,9 @@ class MainActivity : ComponentActivity() {
                     bluetoothAdapter = bluetoothAdapter,
                 )
 
-                */
 
 
-                //todo- bypass flow -------------------------
 
-                // Test direct de la screen, bypass navigation
-                val playgroundViewModel: PlaygroundSettingsViewModel = viewModel(
-                    factory = PlaygroundSettingsViewModelFactory()
-                )
-
-                val metrics: DisplayMetrics = resources.displayMetrics
-                val screenWidthPx = metrics.widthPixels.toFloat()
-                val screenHeightPx = metrics.heightPixels.toFloat()
-
-                // Initialise 1 viewport de test si la liste est vide
-                val virtualPlane by playgroundViewModel.virtualPlaneConfig.collectAsState()
-                if (virtualPlane.viewports.isEmpty()) {
-                    playgroundViewModel.addViewport(
-                        ViewportConfig(
-                            deviceId = "Device 1",
-                            offsetX = 10f,
-                            offsetY = 10f,
-                            width = 50f,
-                            height = 50f,
-                            orientation = VirtualOrientation.NORMAL,
-                            screenWidthPx = screenWidthPx.toInt(),
-                            screenHeightPx = screenHeightPx.toInt()
-                        )
-                    )
-                }
-
-
-                PlaygroundSettingsScreen(
-                    isMaster = true,
-                    currentDeviceId = "Master",
-                    onValidate = { config ->
-
-                    }
-                )
 
 
             }
