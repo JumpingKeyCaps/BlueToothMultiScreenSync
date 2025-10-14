@@ -76,18 +76,24 @@ While extending this to dynamic image streaming or other large media would neces
 
 ## Features & Technical Approach
 
-### 🔹 Virtual Plane & Viewports
+### 🔹 Virtual Plane & Viewports (DP-Based Physical Consistency)
+
 - All devices share the same **virtual plane** measured in **Virtual Units (VU)**.
 - The virtual plane acts as the *absolute coordinate system* for all rendering.
 - Each device owns a **viewport** within this plane:
-  - **offsetX / offsetY** → top-left corner in VU
-  - **widthVU / heightVU** → viewport size in VU
-- Conversion formula for rendering:
-  ```scale = widthPixels / widthVU
-  px = (xVU - offsetX) * scale
-  py = (yVU - offsetY) * scale
-  ```
-  - This keeps **scale uniform** across devices while avoiding distortion.
+  - **offsetX / offsetY** → top-left corner in VU
+  - **widthVU / heightVU** → viewport size in VU
+
+**Crucially, physical size consistency is achieved using Density-Independent Pixels (DP) and a Global Scale Factor (DP/VU) determined by the Master.**
+
+- The Master enforces a **Global Scale Factor ($\text{Scale}_{\text{DP/VU}}$)** across all devices. This is the contract that ensures an object spanning 100 VU has the exact same physical size (in cm/inches) on every screen.
+- Each Slave sends its screen dimensions in **DP** and its **pixel density ($\text{Px/DP}$)** to the Master.
+
+**The final coordinate conversion flow on the Slave device is:**
+1. **VU $\to$ DP**: Local VU coordinates are multiplied by the **Global Scale Factor** ($\text{Scale}_{\text{DP/VU}}$) to get a DP value that represents the correct physical size.
+2. **DP $\to$ Px**: The resulting DP value is then multiplied by the local device **density** ($\text{Px/DP}$) to get the final screen pixel position for rendering.
+
+This two-step approach ensures that the visual scale is uniform across all devices, regardless of their native pixel resolution.
 
 ### 🔹 Master / Slave Roles
 - **Master device**:
@@ -164,18 +170,25 @@ The reflection hack is kept here as a **portfolio experiment**, demonstrating bo
 
 ---
 
-## Example Configuration
+## Example Configuration (Illustrative)
 
-- **Virtual plane**: `2000 × 1200` VU  
+- **Virtual plane**: `2000 × 1200` VU  
+- **Global Scale Contract**: $\text{Scale}_{\text{DP/VU}} = 1.0$ (set by the Master)
 - **Two devices side-by-side**:
-- Viewport A: `offsetX=0`, `widthVU=1000`
-- Viewport B: `offsetX=1000`, `widthVU=1000`
-- **Phone A**: `1080 × 2400 px`, scale = `1080 / 1000 = 1.08`
-- **Phone B**: `720 × 1600 px`, scale = `0.72`
+    - Viewport A: `offsetX=0`, `widthVU=1000`, `density=2.0`
+    - Viewport B: `offsetX=1000`, `widthVU=1000`, `density=3.0`
 - **Image**: `200 × 200` VU at `(900, 100)` VU
-- Part visible on A: `108 × 216` px
-- Part visible on B: `72 × 144` px
-- Alignment is perfect at the shared virtual border (`offsetX=1000`).
+
+**Resulting Physical Size Consistency (VU -> Px):**
+
+| Device | Local DP Size (200 VU * $\text{Scale}_{\text{DP/VU}}$) | Local Density ($\text{Px/DP}$) | Pixel Size (DP * Density) |
+| :--- | :--- | :--- | :--- |
+| **Phone A** | 200 DP | $\times 2.0$ | **400 Px** |
+| **Phone B** | 200 DP | $\times 3.0$ | **600 Px** |
+
+- **Observation :** Although the image has a different size in pixels (400 $\text{Px}$ vs 600 $\text{Px}$), it occupies the **exact same physical area** (cm/inches) on both screens, because 200 $\text{DP}$ is the consistent physical size unit on Android.
+- **Alignment** is perfect at the shared virtual border (`offsetX=1000`).
+
 
 ---
 
