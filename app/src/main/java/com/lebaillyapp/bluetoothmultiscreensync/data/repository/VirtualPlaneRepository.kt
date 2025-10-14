@@ -9,108 +9,73 @@ import kotlinx.coroutines.flow.map
 
 /**
  * # VirtualPlaneRepository
- * Repository providing a clean, reactive API for managing the virtual plane coordinate system.
+ * Repository providing a clean, reactive API for managing the virtual plane coordinate system,
+ * based on the Density-Independent Pixel (DP) contract for physical size consistency.
  *
- * This repository acts as an abstraction layer between ViewModels and the [VirtualPlaneService],
- * following the Repository pattern to:
- * - Encapsulate data access logic
- * - Expose immutable reactive streams ([Flow]) instead of mutable state
- * - Provide a simplified API for the presentation layer
- * - Enable easier testing through dependency injection
+ * This repository acts as an abstraction layer between ViewModels and the [VirtualPlaneService].
  *
- *
- * #### Responsibilities
- * - **Coordinate Transformations**: Convert between virtual, local, and screen coordinates
- * - **Viewport Management**: Define, update, and observe device viewport configurations
- * - **Plane Initialization**: Set up the global virtual canvas dimensions
- * - **Reactive State**: Expose observable flows for UI updates
- *
- * #### Thread Safety
- * All operations are thread-safe. The underlying [VirtualPlaneService] uses
- * [kotlinx.coroutines.flow.StateFlow] with atomic updates, making it safe to call
- * from any coroutine context.
- *
+ * ... [Documentation conservée pour les responsabilités et la thread safety] ...
  *
  * @property service The underlying [VirtualPlaneService] that manages state
  *
  * @see VirtualPlaneService The service layer managing viewport state
  * @see Viewport Domain model representing a device's viewport configuration
- * @see VirtualOrientation Enum defining possible viewport orientations
  */
 class VirtualPlaneRepository(
     private val service: VirtualPlaneService
 ) {
 
-    /**
-     * Reactive stream of the virtual plane's width in virtual units.
-     *
-     * Emits the current width whenever it changes. Initial value is `0f` before initialization.
-     * ViewModels should collect this flow to react to plane size changes.
-     *
-     * @see planeHeight
-     */
+    // --- REACTIVE STREAMS ---
+
+    /** Reactive stream of the virtual plane's width in virtual units. */
     val planeWidth: Flow<Float> = service.planeWidth
 
-    /**
-     * Reactive stream of the virtual plane's height in virtual units.
-     *
-     * Emits the current height whenever it changes. Initial value is `0f` before initialization.
-     * ViewModels should collect this flow to react to plane size changes.
-     *
-     * @see planeWidth
-     */
+    /** Reactive stream of the virtual plane's height in virtual units. */
     val planeHeight: Flow<Float> = service.planeHeight
 
     /**
-     * Reactive stream of all device viewports currently configured.
-     *
-     * Emits a map of device IDs to their corresponding [Viewport] configurations.
-     * The map is updated whenever:
-     * - A new viewport is added via [defineViewport]
-     * - An existing viewport is modified via [updateViewport]
-     * - All viewports are cleared via [clear]
-     *
-     * @return Flow emitting `Map<DeviceId, Viewport>` where keys are device identifiers
-     *
+     * Reactive stream of the **Global Scale Factor** (Density-Independent Pixels per Virtual Unit).
+     * This factor guarantees consistent physical sizing across all connected devices.
      */
+    val scaleDpPerVu: Flow<Float> = service.scaleDpPerVu
+
+    /** Reactive stream of all device viewports currently configured. */
     val viewports: Flow<Map<String, Viewport>> = service.viewports
 
+    // --- INITIALIZATION AND MANAGEMENT ---
+
     /**
-     * Initializes the global virtual plane dimensions.
+     * Initializes the global virtual plane dimensions and the global scaling contract.
      *
-     * This should be called **once** by the master device during initial setup.
-     * Defines the total coordinate space shared by all connected devices.
+     * This must be called **once** by the master device.
      *
-     * @param width Total width of the virtual plane in virtual units (must be > 0)
-     * @param height Total height of the virtual plane in virtual units (must be > 0)
-     * @throws IllegalArgumentException if width or height is <= 0
+     * @param width Total width of the virtual plane (VU)
+     * @param height Total height of the virtual plane (VU)
+     * @param scaleDpPerVu The mandated global scale factor (DP/VU) for all devices.
+     * @throws IllegalArgumentException if dimensions or scale are invalid
      *
      * @see defineViewport To assign portions of this plane to devices
      */
-    fun initPlane(width: Float, height: Float) {
-        service.initPlane(width, height)
+    fun initPlane(width: Float, height: Float, scaleDpPerVu: Float) {
+        service.initPlane(width, height, scaleDpPerVu)
     }
 
     /**
      * Defines a new viewport configuration for a specific device.
      *
-     * Creates a mapping between a rectangular region on the virtual plane
-     * and a physical device screen. The master device typically calls this
-     * for each connected slave during initialization.
+     * **NOTE**: This now requires DP dimensions and density for local scale calculation.
      *
-     * @param deviceId Unique identifier for the device (typically Bluetooth MAC address)
-     * @param offsetX X position of the viewport's top-left corner in virtual units
-     * @param offsetY Y position of the viewport's top-left corner in virtual units
-     * @param width Width of the viewport in virtual units (must be > 0)
-     * @param height Height of the viewport in virtual units (must be > 0)
-     * @param screenWidthPx Physical screen width in pixels (must be > 0)
-     * @param screenHeightPx Physical screen height in pixels (must be > 0)
-     * @param orientation Virtual orientation applied to this viewport (default: NORMAL)
+     * @param deviceId Unique identifier for the device
+     * @param offsetX X position of the viewport's top-left corner (VU)
+     * @param offsetY Y position of the viewport's top-left corner (VU)
+     * @param width Width of the viewport (VU)
+     * @param height Height of the viewport (VU)
+     * @param screenWidthDp Physical screen width in **Density-Independent Pixels (DP)**
+     * @param screenHeightDp Physical screen height in **Density-Independent Pixels (DP)**
+     * @param density Device pixel density (Px/DP ratio)
+     * @param orientation Virtual orientation applied (default: NORMAL)
      *
      * @throws IllegalArgumentException if dimensions are invalid or viewport exceeds plane bounds
-     *
-     * @see updateViewport To modify an existing viewport
-     * @see getViewport To retrieve a viewport configuration
      */
     fun defineViewport(
         deviceId: String,
@@ -118,30 +83,31 @@ class VirtualPlaneRepository(
         offsetY: Float,
         width: Float,
         height: Float,
-        screenWidthPx: Int,
-        screenHeightPx: Int,
+        screenWidthDp: Float, // CORRECTION
+        screenHeightDp: Float, // CORRECTION
+        density: Float, // CORRECTION
         orientation: VirtualOrientation = VirtualOrientation.NORMAL
     ) {
         service.defineViewport(
             deviceId, offsetX, offsetY, width, height,
-            screenWidthPx, screenHeightPx, orientation
+            screenWidthDp, screenHeightDp, density, orientation
         )
     }
 
     /**
      * Partially updates an existing viewport's configuration.
      *
-     * Only non-null parameters are updated; others retain their current values.
-     * Useful for adjusting layout without recreating the entire viewport.
+     * **NOTE**: Updated to allow optional modification of DP dimensions and density.
      *
      * @param deviceId Unique identifier of the viewport to update
-     * @param offsetX New X offset (optional, retains current value if null)
-     * @param offsetY New Y offset (optional, retains current value if null)
-     * @param width New width in VU (optional, retains current value if null)
-     * @param height New height in VU (optional, retains current value if null)
-     * @param screenWidthPx New screen width in pixels (optional, retains current if null)
-     * @param screenHeightPx New screen height in pixels (optional, retains current if null)
-     * @param orientation New virtual orientation (optional, retains current if null)
+     * @param offsetX New X offset (optional)
+     * @param offsetY New Y offset (optional)
+     * @param width New width in VU (optional)
+     * @param height New height in VU (optional)
+     * @param screenWidthDp New screen width in DP (optional)
+     * @param screenHeightDp New screen height in DP (optional)
+     * @param density New device density (optional)
+     * @param orientation New virtual orientation (optional)
      *
      * @see defineViewport To create a new viewport
      */
@@ -151,73 +117,75 @@ class VirtualPlaneRepository(
         offsetY: Float? = null,
         width: Float? = null,
         height: Float? = null,
-        screenWidthPx: Int? = null,
-        screenHeightPx: Int? = null,
+        screenWidthDp: Float? = null, // CORRECTION
+        screenHeightDp: Float? = null, // CORRECTION
+        density: Float? = null, // CORRECTION
         orientation: VirtualOrientation? = null
     ) {
         service.updateViewport(
             deviceId, offsetX, offsetY, width, height,
-            screenWidthPx, screenHeightPx, orientation
+            screenWidthDp, screenHeightDp, density, orientation
         )
     }
 
     /**
      * Retrieves the viewport configuration for a specific device.
-     *
-     * @param deviceId Unique identifier of the device
-     * @return The [Viewport] configuration, or `null` if not defined
-     *
-     *
-     * @see observeViewport To reactively observe viewport changes
      */
     fun getViewport(deviceId: String): Viewport? = service.getViewport(deviceId)
+
+    // --- COORDINATE TRANSFORMATIONS ---
 
     /**
      * Converts global virtual coordinates to local device coordinates.
      *
-     * This transformation:
-     * 1. Translates coordinates relative to the viewport's offset
-     * 2. Applies the device's virtual orientation (rotation/flip)
-     * 3. Returns coordinates in the device's local coordinate space (in VU, not pixels)
-     *
-     * **Note**: This does NOT apply pixel scaling. Use [VirtualPlaneService.virtualToScreen]
-     * if you need screen pixel coordinates.
+     * **Note**: Output is still in **Virtual Units (VU)**.
      *
      * @param deviceId Device identifier whose viewport defines the transformation
      * @param x Global X coordinate on the virtual plane
      * @param y Global Y coordinate on the virtual plane
      * @return [Offset] in local device coordinates (still in virtual units)
      *
-     * @see VirtualPlaneService.localToVirtual For the inverse transformation
-     * @see VirtualPlaneService.virtualToScreen To get screen pixel coordinates
      */
     fun virtualToLocal(deviceId: String, x: Float, y: Float): Offset =
         service.virtualToLocal(deviceId, x, y)
 
+
+    /**
+     * Converts virtual coordinates (VU) into screen pixel coordinates (SC).
+     *
+     * This transformation ensures physical size consistency using the global DP/VU scale
+     * and the device's local density (Px/DP). Use this for actual rendering.
+     *
+     * @param deviceId Device identifier
+     * @param x Global X coordinate on the virtual plane
+     * @param y Global Y coordinate on the virtual plane
+     * @return Offset in screen pixel coordinates (Px)
+     */
+    fun virtualToScreen(deviceId: String, x: Float, y: Float): Offset =
+        service.virtualToScreen(deviceId, x, y)
+
+    /**
+     * Converts screen pixel coordinates (SC) into virtual coordinates (VU).
+     *
+     * This is the inverse of virtualToScreen(). Used to convert touch events.
+     *
+     * @param deviceId Device identifier
+     * @param screenX X coordinate in screen pixels
+     * @param screenY Y coordinate in screen pixels
+     * @return Offset in virtual coordinates (VU)
+     */
+    fun screenToVirtual(deviceId: String, screenX: Float, screenY: Float): Offset =
+        service.screenToVirtual(deviceId, screenX, screenY)
+
     /**
      * Resets the entire virtual plane system.
      *
-     * Clears:
-     * - All viewport configurations
-     * - Plane dimensions (reset to 0)
-     * - Plane state (reset to IDLE)
-     *
-     * This is typically called when disconnecting from a Bluetooth session
-     * or resetting the application state.
-     *
+     * Clears all configurations, dimensions, and state.
      */
     fun clear() = service.clear()
 
     /**
      * Creates a reactive stream observing a single device's viewport.
-     *
-     * More efficient than observing [viewports] when you only care about
-     * one specific device. Emits `null` if the viewport doesn't exist.
-     *
-     * @param deviceId Device identifier to observe
-     * @return Flow emitting the [Viewport] or `null` whenever it changes
-     *
-     * @see viewports To observe all viewports simultaneously
      */
     fun observeViewport(deviceId: String): Flow<Viewport?> =
         service.viewports.map { it[deviceId] }
