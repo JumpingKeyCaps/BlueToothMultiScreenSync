@@ -1,5 +1,6 @@
 package com.lebaillyapp.bluetoothmultiscreensync.data.bluetooth
 
+import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothSocket
 import com.lebaillyapp.bluetoothmultiscreensync.domain.model.bluetooth.ConnectionState
 import kotlinx.coroutines.*
@@ -33,7 +34,7 @@ class BluetoothConnection(
 ) {
 
     private val incomingChannel = Channel<String>(Channel.BUFFERED)
-
+    val remoteDevice: BluetoothDevice = socket.remoteDevice
     /**
      * Flow of incoming messages from the connected Bluetooth device.
      * Each message is a line terminated by newline.
