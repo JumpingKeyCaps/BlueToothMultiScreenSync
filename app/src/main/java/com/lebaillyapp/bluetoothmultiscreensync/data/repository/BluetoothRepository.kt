@@ -1,12 +1,14 @@
 package com.lebaillyapp.bluetoothmultiscreensync.data.repository
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.content.Context
 import androidx.annotation.RequiresPermission
 import com.lebaillyapp.bluetoothmultiscreensync.data.bluetooth.*
 import com.lebaillyapp.bluetoothmultiscreensync.domain.model.bluetooth.ConnectionState
+import com.lebaillyapp.bluetoothmultiscreensync.domain.model.bluetooth.DeviceInfo
 import com.lebaillyapp.bluetoothmultiscreensync.domain.model.bluetooth.ServerState
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -24,6 +26,7 @@ import java.util.*
  * - Connecting as a client to a remote server ([connectToDevice], [disconnect]).
  * - Sending messages to connected peers ([sendMessage]).
  * - Aggregating connection states and incoming messages from both server and client.
+ * - Managing network device list synchronization between master and slaves.
  *
  * ### Exposed Flows:
  * - [scanResults]: list of discovered devices during scan.
@@ -32,6 +35,7 @@ import java.util.*
  * - [incomingMessages]: all messages received from any client or server connection.
  * - [clientState]: current client connection state.
  * - [currentConnection]: active client connection (if any).
+ * - [networkDevices]: synchronized list of all devices in the network (master + slaves).
  *
  * All operations are coroutine-safe and run on [Dispatchers.IO].
  *
@@ -85,6 +89,27 @@ class BluetoothRepository(
     private val _incomingMessages = MutableSharedFlow<String>(extraBufferCapacity = 32)
     val incomingMessages: SharedFlow<String> = _incomingMessages
 
+    // --- Network Devices ---
+    private val _networkDevices = MutableStateFlow<List<DeviceInfo>>(emptyList())
+    val networkDevices: StateFlow<List<DeviceInfo>> = _networkDevices.asStateFlow()
+
+    init {
+        // Observer les connexions entrantes pour mettre à jour la liste réseau (MASTER)
+        scope.launch {
+            incomingConnections.collect {
+                observeConnections()
+              //  updateNetworkList()
+            }
+        }
+
+        // Observer les messages pour recevoir les updates réseau (SLAVE)
+        scope.launch {
+            incomingMessages.collect { message ->
+                parseNetworkUpdate(message)
+            }
+        }
+    }
+
     /**
      * ### Starts a Bluetooth server to accept incoming client connections.
      */
@@ -100,6 +125,7 @@ class BluetoothRepository(
         scope.launch { server!!.incomingMessages.collect { _incomingMessages.emit(it) } }
 
         server!!.start()
+        observeConnections()
     }
 
     /**
@@ -109,6 +135,7 @@ class BluetoothRepository(
         server?.stop()
         server = null
         _serverState.value = ServerState.Stopped
+        _networkDevices.value = emptyList()
     }
 
     // --- Client ---
@@ -143,6 +170,9 @@ class BluetoothRepository(
      * and to the active client connection if present.
      */
     fun sendMessage(message: String) {
+        // Ne pas envoyer si c'est un message système
+        if (message.startsWith("NETWORK_UPDATE|")) return
+
         scope.launch {
             server?.getConnectionsSnapshot()?.forEach { conn ->
                 try { conn.sendMessage(message) } catch (_: IOException) {}
@@ -160,5 +190,79 @@ class BluetoothRepository(
         client = null
         _currentConnection = null
         _clientState.value = ConnectionState.Disconnected
+        _networkDevices.value = emptyList()
+    }
+
+    /**
+     * ### Updates the network device list and broadcasts it to all slaves (MASTER only).
+     * Called automatically when a new connection is established.
+     */
+    @SuppressLint("MissingPermission")
+    private fun updateNetworkList() {
+        val currentServer = server ?: return  // smart cast OK, immuable maintenant
+
+        val devices = mutableListOf<DeviceInfo>()
+
+        // Ajouter le master (moi-même)
+        devices.add(DeviceInfo(adapter.name ?: "Master", adapter.address, isMaster = true))
+
+        // Ajouter les slaves uniques
+        currentServer.getConnectionsSnapshot().forEach { conn ->
+            if (devices.none { it.address == conn.remoteDevice.address }) {
+                devices.add(
+                    DeviceInfo(
+                        name = conn.remoteDevice.name ?: "Unknown",
+                        address = conn.remoteDevice.address,
+                        isMaster = false
+                    )
+                )
+            }
+        }
+
+        _networkDevices.value = devices
+
+        // Broadcast network update
+        val networkMsg = "NETWORK_UPDATE|" + devices.joinToString("|") {
+            "${it.name},${it.address},${it.isMaster}"
+        }
+
+        scope.launch {
+            currentServer.getConnectionsSnapshot().forEach { conn ->
+                try { conn.sendMessage(networkMsg) } catch (_: IOException) {}
+            }
+        }
+    }
+
+    private fun observeConnections() {
+        server?.getConnectionsSnapshot()?.forEach { conn ->
+            scope.launch {
+                conn.connectionState.collect { state ->
+                    if (state == ConnectionState.Disconnected || state is ConnectionState.Error) {
+                        updateNetworkList() // recalculer la liste sans ce device
+                    }
+                }
+            }
+        }
+    }
+
+
+
+    /**
+     * ### Parses incoming network update messages (SLAVE only).
+     * Updates the local network device list when receiving updates from the master.
+     */
+    private fun parseNetworkUpdate(message: String) {
+        if (!message.startsWith("NETWORK_UPDATE|")) return
+
+        try {
+            val parts = message.removePrefix("NETWORK_UPDATE|").split("|")
+            val devices = parts.map { part ->
+                val (name, addr, isMaster) = part.split(",")
+                DeviceInfo(name, addr, isMaster.toBoolean())
+            }
+            _networkDevices.value = devices
+        } catch (_: Exception) {
+            // Pas un message réseau valide, ignorer
+        }
     }
 }
