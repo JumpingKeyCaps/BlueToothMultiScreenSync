@@ -3,6 +3,7 @@ package com.lebaillyapp.bluetoothmultiscreensync.viewmodel
 import androidx.lifecycle.ViewModel
 import com.lebaillyapp.bluetoothmultiscreensync.data.repository.BluetoothRepository
 import com.lebaillyapp.bluetoothmultiscreensync.domain.model.bluetooth.ConnectionState
+import com.lebaillyapp.bluetoothmultiscreensync.domain.model.bluetooth.DeviceInfo
 import com.lebaillyapp.bluetoothmultiscreensync.domain.model.bluetooth.ServerState
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -30,6 +31,9 @@ class PlaygroundViewModel(
 
     /** SharedFlow of all incoming messages from any connected device */
     val incomingMessages: SharedFlow<String> = repository.incomingMessages
+
+
+    val networkDevices: StateFlow<List<DeviceInfo>> = repository.networkDevices
 
     /**
      * Sends a message to connected devices
